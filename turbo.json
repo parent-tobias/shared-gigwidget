@@ -7,7 +7,8 @@
       "outputs": [
         "dist/**",
         ".svelte-kit/**",
-        "build/**"
+        "build/**",
+        ".vercel/output/**"
       ]
     },
     "dev": {
