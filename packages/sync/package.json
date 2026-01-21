@@ -1,0 +1,40 @@
+{
+  "name": "@gigwidget/sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CRDT sync providers and session management for Gigwidget",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./providers": {
+      "types": "./dist/providers/index.d.ts",
+      "import": "./dist/providers/index.js"
+    },
+    "./session": {
+      "types": "./dist/session/index.d.ts",
+      "import": "./dist/session/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@gigwidget/core": "workspace:*",
+    "@supabase/supabase-js": "^2.47.0",
+    "qrcode": "^1.5.0",
+    "y-indexeddb": "^9.0.0",
+    "y-webrtc": "^10.3.0",
+    "yjs": "^13.6.0"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.0",
+    "@types/web-bluetooth": "^0.0.21",
+    "typescript": "^5.7.0"
+  }
+}

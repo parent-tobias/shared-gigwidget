@@ -1,0 +1,795 @@
+<script lang="ts">
+  import { browser } from '$app/environment';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import type { Song, Arrangement, MusicalKey } from '@gigwidget/core';
+  import { MUSICAL_KEYS } from '@gigwidget/core';
+  import SyncIndicator from '$lib/components/SyncIndicator.svelte';
+
+  let song = $state<Song | null>(null);
+  let arrangements = $state<Arrangement[]>([]);
+  let selectedArrangement = $state<Arrangement | null>(null);
+  let loading = $state(true);
+  let error = $state<string | null>(null);
+  let editMode = $state(false);
+  let editorContent = $state('');
+  let saving = $state(false);
+  let hasLoaded = false;
+  let editorReady = $state(false);
+  let rendererReady = $state(false);
+
+  // Transpose state
+  let transposeSemitones = $state(0);
+  let showTransposeModal = $state(false);
+  let preferFlats = $state(false);
+
+  // Sync state
+  let syncStatus = $state<'synced' | 'syncing' | 'offline' | 'error'>('offline');
+  let peerCount = $state(0);
+  let yjsDoc: any = null;
+  let yjsText: any = null;
+  let yjsTranspose: any = null; // Y.Map for transpose state (synced in sessions)
+  let indexeddbProvider: any = null;
+
+  // Derived: transposed content for view mode
+  const displayContent = $derived.by(() => {
+    if (!selectedArrangement) return '';
+    if (transposeSemitones === 0) return selectedArrangement.content;
+    return transposeContentLocal(selectedArrangement.content, transposeSemitones);
+  });
+
+  // Local transpose function (will be loaded async)
+  let transposeContentLocal = (content: string, semitones: number) => content;
+
+  // Get song ID from route
+  const songId = $derived($page.params.id);
+
+  $effect(() => {
+    if (!browser || hasLoaded) return;
+    hasLoaded = true;
+
+    loadSong();
+    loadLitComponents();
+    initYjs();
+  });
+
+  // Cleanup Yjs on component destroy
+  $effect(() => {
+    return () => {
+      if (indexeddbProvider) {
+        indexeddbProvider.destroy();
+      }
+      if (yjsDoc) {
+        yjsDoc.destroy();
+      }
+    };
+  });
+
+  async function initYjs() {
+    try {
+      const Y = await import('yjs');
+      const { IndexeddbPersistence } = await import('y-indexeddb');
+      const { transposeChordProContent } = await import('@gigwidget/core');
+
+      // Store the transpose function for derived state
+      transposeContentLocal = (content: string, semitones: number) =>
+        transposeChordProContent(content, semitones, preferFlats);
+
+      yjsDoc = new Y.Doc();
+      yjsText = yjsDoc.getText('content');
+      yjsTranspose = yjsDoc.getMap('transpose'); // For session-synced transpose state
+
+      // Set up local persistence
+      indexeddbProvider = new IndexeddbPersistence(`song-${songId}`, yjsDoc);
+
+      indexeddbProvider.on('synced', () => {
+        syncStatus = 'synced';
+        // Load content from Yjs if it has data
+        const yjsContent = yjsText.toString();
+        if (yjsContent && yjsContent.length > 0) {
+          editorContent = yjsContent;
+        }
+        // Load transpose state if set
+        const storedTranspose = yjsTranspose.get('semitones');
+        if (typeof storedTranspose === 'number') {
+          transposeSemitones = storedTranspose;
+        }
+      });
+
+      // Observe changes to Yjs text
+      yjsText.observe(() => {
+        const newContent = yjsText.toString();
+        if (newContent !== editorContent) {
+          editorContent = newContent;
+        }
+      });
+
+      // Observe changes to transpose state (for session sync)
+      yjsTranspose.observe(() => {
+        const newTranspose = yjsTranspose.get('semitones');
+        if (typeof newTranspose === 'number' && newTranspose !== transposeSemitones) {
+          transposeSemitones = newTranspose;
+        }
+      });
+    } catch (err) {
+      console.error('Failed to initialize Yjs:', err);
+      syncStatus = 'error';
+    }
+  }
+
+  function updateYjsContent(content: string) {
+    if (!yjsDoc || !yjsText) return;
+
+    yjsDoc.transact(() => {
+      yjsText.delete(0, yjsText.length);
+      yjsText.insert(0, content);
+    });
+  }
+
+  async function loadLitComponents() {
+    try {
+      await import('@parent-tobias/chordpro-editor');
+      editorReady = true;
+    } catch (err) {
+      console.error('Failed to load chordpro-editor:', err);
+    }
+
+    try {
+      await import('@parent-tobias/chordpro-renderer');
+      rendererReady = true;
+    } catch (err) {
+      console.error('Failed to load chordpro-renderer:', err);
+    }
+  }
+
+  async function loadSong() {
+    try {
+      const { SongRepository, ArrangementRepository } = await import('@gigwidget/db');
+
+      const foundSong = await SongRepository.getById(songId);
+      if (!foundSong) {
+        error = 'Song not found';
+        loading = false;
+        return;
+      }
+
+      song = foundSong;
+      arrangements = await ArrangementRepository.getBySong(songId);
+
+      if (arrangements.length > 0) {
+        selectedArrangement = arrangements[0];
+        editorContent = selectedArrangement.content;
+      }
+    } catch (err) {
+      console.error('Failed to load song:', err);
+      error = err instanceof Error ? err.message : 'Failed to load song';
+    } finally {
+      loading = false;
+    }
+  }
+
+  function handleContentChange(e: CustomEvent<{ content: string }>) {
+    editorContent = e.detail.content;
+    updateYjsContent(e.detail.content);
+  }
+
+  async function saveContent() {
+    if (!selectedArrangement || !song) return;
+
+    saving = true;
+    try {
+      const { ArrangementRepository, SongRepository } = await import('@gigwidget/db');
+
+      await ArrangementRepository.update(selectedArrangement.id, {
+        content: editorContent,
+        version: selectedArrangement.version + 1,
+      });
+
+      await SongRepository.update(song.id, {});
+
+      selectedArrangement = {
+        ...selectedArrangement,
+        content: editorContent,
+        version: selectedArrangement.version + 1,
+        updatedAt: new Date(),
+      };
+    } catch (err) {
+      console.error('Failed to save:', err);
+    } finally {
+      saving = false;
+    }
+  }
+
+  function toggleEditMode() {
+    if (editMode && editorContent !== selectedArrangement?.content) {
+      saveContent();
+    }
+    editMode = !editMode;
+  }
+
+  function selectArrangement(arr: Arrangement) {
+    if (editMode && editorContent !== selectedArrangement?.content) {
+      saveContent();
+    }
+    selectedArrangement = arr;
+    editorContent = arr.content;
+  }
+
+  async function deleteSong() {
+    if (!song) return;
+    if (!confirm('Are you sure you want to delete this song? This cannot be undone.')) return;
+
+    try {
+      const { SongRepository } = await import('@gigwidget/db');
+      await SongRepository.delete(song.id);
+      goto('/songs');
+    } catch (err) {
+      console.error('Failed to delete song:', err);
+      error = 'Failed to delete song';
+    }
+  }
+
+  // Transpose functions
+  function setTranspose(semitones: number) {
+    transposeSemitones = semitones;
+    // Sync to Yjs for session sharing
+    if (yjsTranspose) {
+      yjsTranspose.set('semitones', semitones);
+    }
+  }
+
+  function transposeBy(delta: number) {
+    // Keep in range -11 to +11
+    const newValue = ((transposeSemitones + delta) % 12 + 12) % 12;
+    setTranspose(newValue > 6 ? newValue - 12 : newValue);
+  }
+
+  async function transposeToKey(targetKey: string) {
+    if (!song?.key) return;
+
+    const { getSemitonesBetweenKeys } = await import('@gigwidget/core');
+    const semitones = getSemitonesBetweenKeys(song.key, targetKey);
+    setTranspose(semitones);
+    showTransposeModal = false;
+  }
+
+  function resetTranspose() {
+    setTranspose(0);
+  }
+
+  function getTransposedKey(originalKey: string | undefined, semitones: number): string {
+    if (!originalKey || semitones === 0) return originalKey ?? '';
+    // This will be computed properly with the transpose function
+    return `${originalKey} (transposed)`;
+  }
+
+  // Major keys for transpose-to-key dropdown
+  const MAJOR_KEYS = ['C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'F', 'F#', 'Gb', 'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B'];
+  const MINOR_KEYS = ['Am', 'A#m', 'Bbm', 'Bm', 'Cm', 'C#m', 'Dm', 'D#m', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m'];
+</script>
+
+<svelte:head>
+  <title>{song?.title ?? 'Loading...'} - Gigwidget</title>
+</svelte:head>
+
+<main class="container">
+  {#if loading}
+    <div class="loading">Loading song...</div>
+  {:else if error}
+    <div class="error-container">
+      <p>{error}</p>
+      <a href="/songs" class="btn btn-secondary">Back to Songs</a>
+    </div>
+  {:else if song}
+    <header class="page-header">
+      <div class="header-left">
+        <a href="/songs" class="back-link">← Back to Songs</a>
+        <h1>{song.title}</h1>
+        {#if song.artist}
+          <span class="song-artist">by {song.artist}</span>
+        {/if}
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" onclick={toggleEditMode}>
+          {editMode ? 'View' : 'Edit'}
+        </button>
+        <button class="btn btn-danger" onclick={deleteSong}>Delete</button>
+      </div>
+    </header>
+
+    <div class="song-meta">
+      <SyncIndicator status={syncStatus} peerCount={peerCount} />
+      {#if song.key}
+        <span class="meta-item">Key: {song.key}</span>
+      {/if}
+      {#if song.tempo}
+        <span class="meta-item">{song.tempo} BPM</span>
+      {/if}
+      {#if song.tags.length > 0}
+        <div class="tags">
+          {#each song.tags as tag}
+            <span class="tag">{tag}</span>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    {#if !editMode}
+      <div class="transpose-controls">
+        <div class="transpose-buttons">
+          <button class="transpose-btn" onclick={() => transposeBy(-1)} title="Transpose down">
+            -1
+          </button>
+          <button
+            class="transpose-display"
+            onclick={() => (showTransposeModal = true)}
+            title="Click to transpose to key"
+          >
+            {#if transposeSemitones === 0}
+              Original
+            {:else}
+              {transposeSemitones > 0 ? '+' : ''}{transposeSemitones}
+            {/if}
+          </button>
+          <button class="transpose-btn" onclick={() => transposeBy(1)} title="Transpose up">
+            +1
+          </button>
+        </div>
+        {#if transposeSemitones !== 0}
+          <button class="reset-btn" onclick={resetTranspose}>Reset</button>
+        {/if}
+      </div>
+    {/if}
+
+    {#if arrangements.length > 1}
+      <nav class="arrangement-tabs">
+        {#each arrangements as arr}
+          <button
+            class="arrangement-tab"
+            class:active={selectedArrangement?.id === arr.id}
+            onclick={() => selectArrangement(arr)}
+          >
+            {arr.instrument.charAt(0).toUpperCase() + arr.instrument.slice(1)}
+            {#if arr.capo}
+              (Capo {arr.capo})
+            {/if}
+          </button>
+        {/each}
+      </nav>
+    {/if}
+
+    <div class="editor-container">
+      {#if editMode}
+        {#if editorReady}
+          <div class="editor-wrapper">
+            <chordpro-editor
+              content={editorContent}
+              theme="chordpro-dark"
+              oncontent-changed={handleContentChange}
+            ></chordpro-editor>
+          </div>
+          <div class="editor-actions">
+            <span class="save-status">
+              {#if saving}
+                Saving...
+              {:else}
+                Auto-saved
+              {/if}
+            </span>
+            <button class="btn btn-primary" onclick={saveContent} disabled={saving}>
+              Save Now
+            </button>
+          </div>
+        {:else}
+          <div class="loading">Loading editor...</div>
+        {/if}
+      {:else}
+        {#if rendererReady && selectedArrangement}
+          <div class="renderer-wrapper">
+            <chordpro-renderer
+              content={displayContent}
+              theme="chordpro-dark"
+            ></chordpro-renderer>
+          </div>
+        {:else if !selectedArrangement}
+          <div class="empty-state">
+            <p>No arrangement found for this song.</p>
+          </div>
+        {:else}
+          <div class="loading">Loading viewer...</div>
+        {/if}
+      {/if}
+    </div>
+  {/if}
+</main>
+
+{#if showTransposeModal}
+  <div class="modal-overlay" onclick={() => (showTransposeModal = false)}>
+    <div class="modal" onclick={(e) => e.stopPropagation()}>
+      <h2>Transpose</h2>
+
+      <div class="transpose-options">
+        <div class="transpose-section">
+          <h4>By Semitones</h4>
+          <div class="semitone-grid">
+            {#each [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6] as semitone}
+              <button
+                class="semitone-btn"
+                class:active={transposeSemitones === semitone}
+                onclick={() => { setTranspose(semitone); showTransposeModal = false; }}
+              >
+                {semitone === 0 ? '0' : semitone > 0 ? `+${semitone}` : semitone}
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        {#if song?.key}
+          <div class="transpose-section">
+            <h4>To Key (from {song.key})</h4>
+            <div class="key-grid">
+              {#each (song.key.includes('m') ? MINOR_KEYS : MAJOR_KEYS) as targetKey}
+                <button
+                  class="key-btn"
+                  class:active={targetKey === song.key && transposeSemitones === 0}
+                  onclick={() => transposeToKey(targetKey)}
+                >
+                  {targetKey}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <div class="transpose-section">
+          <label class="checkbox-label">
+            <input type="checkbox" bind:checked={preferFlats} />
+            Prefer flats (Bb instead of A#)
+          </label>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick={() => (showTransposeModal = false)}>
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<style>
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: var(--spacing-lg) 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .header-left {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .back-link {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .back-link:hover {
+    color: var(--color-primary);
+  }
+
+  .song-artist {
+    color: var(--color-text-muted);
+    font-size: 1rem;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+  }
+
+  .btn-danger {
+    background-color: transparent;
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
+  }
+
+  .btn-danger:hover {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .song-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md) 0;
+    flex-wrap: wrap;
+  }
+
+  .meta-item {
+    background-color: var(--color-surface);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+  }
+
+  .tags {
+    display: flex;
+    gap: var(--spacing-xs);
+  }
+
+  .tag {
+    background-color: var(--color-secondary);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+  }
+
+  .arrangement-tabs {
+    display: flex;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-md) 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .arrangement-tab {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text-muted);
+    transition: all var(--transition-fast);
+  }
+
+  .arrangement-tab:hover {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .arrangement-tab.active {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .editor-container {
+    padding: var(--spacing-lg) 0;
+    min-height: 400px;
+  }
+
+  .editor-wrapper,
+  .renderer-wrapper {
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    min-height: 300px;
+  }
+
+  .editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md) 0;
+  }
+
+  .save-status {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .loading {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--color-text-muted);
+  }
+
+  .error-container {
+    text-align: center;
+    padding: var(--spacing-xl);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-md);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--color-text-muted);
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-lg);
+  }
+
+  chordpro-editor,
+  chordpro-renderer {
+    display: block;
+    width: 100%;
+    min-height: 300px;
+  }
+
+  /* Transpose controls */
+  .transpose-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) 0;
+  }
+
+  .transpose-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .transpose-btn {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: none;
+    border: none;
+    color: var(--color-text);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+  }
+
+  .transpose-btn:hover {
+    background-color: var(--color-surface);
+  }
+
+  .transpose-display {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--color-surface);
+    border: none;
+    color: var(--color-primary);
+    font-weight: 600;
+    min-width: 80px;
+    cursor: pointer;
+  }
+
+  .transpose-display:hover {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .reset-btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  .reset-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+
+  /* Transpose modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: var(--spacing-md);
+  }
+
+  .modal {
+    background-color: var(--color-bg);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    width: 100%;
+    max-width: 400px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .modal h2 {
+    margin: 0 0 var(--spacing-lg);
+  }
+
+  .transpose-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+  }
+
+  .transpose-section h4 {
+    margin: 0 0 var(--spacing-sm);
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .semitone-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--spacing-xs);
+  }
+
+  .semitone-btn {
+    padding: var(--spacing-sm);
+    background-color: var(--color-bg-secondary);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .semitone-btn:hover {
+    background-color: var(--color-surface);
+  }
+
+  .semitone-btn.active {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .key-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--spacing-xs);
+  }
+
+  .key-btn {
+    padding: var(--spacing-sm);
+    background-color: var(--color-bg-secondary);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .key-btn:hover {
+    background-color: var(--color-surface);
+  }
+
+  .key-btn.active {
+    background-color: var(--color-secondary);
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+    font-size: 0.875rem;
+  }
+
+  .checkbox-label input {
+    width: auto;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--spacing-lg);
+  }
+
+  @media (max-width: 600px) {
+    .page-header {
+      flex-direction: column;
+      gap: var(--spacing-md);
+    }
+
+    .header-actions {
+      width: 100%;
+    }
+
+    .header-actions .btn {
+      flex: 1;
+    }
+  }
+</style>

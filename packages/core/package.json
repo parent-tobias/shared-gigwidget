@@ -1,0 +1,38 @@
+{
+  "name": "@gigwidget/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Core domain models and business logic for Gigwidget",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./models": {
+      "types": "./dist/models/index.d.ts",
+      "import": "./dist/models/index.js"
+    },
+    "./stores": {
+      "types": "./dist/stores/index.d.ts",
+      "import": "./dist/stores/index.js"
+    },
+    "./services": {
+      "types": "./dist/services/index.d.ts",
+      "import": "./dist/services/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "uuid": "^11.0.0",
+    "yjs": "^13.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "gigwidget",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first TAB music sharing app with P2P sync",
+  "keywords": [
+    "music",
+    "tabs",
+    "chordpro",
+    "local-first",
+    "crdt",
+    "p2p"
+  ],
+  "license": "MIT",
+  "author": "",
+  "type": "module",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,svelte,js,json,md}\"",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.0",
+    "prettier-plugin-svelte": "^3.2.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
