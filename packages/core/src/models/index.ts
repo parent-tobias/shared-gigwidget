@@ -37,6 +37,10 @@ export type MemberRole = 'owner' | 'editor' | 'viewer';
 
 export type SessionType = 'webrtc' | 'bluetooth' | 'local-network';
 
+// Subscription tiers for paywall
+export const SUBSCRIPTION_TIERS = ['free', 'basic', 'pro', 'mod'] as const;
+export type SubscriptionTier = (typeof SUBSCRIPTION_TIERS)[number];
+
 // ============================================================================
 // User Domain
 // ============================================================================
@@ -47,6 +51,8 @@ export interface User {
   displayName: string;
   avatar?: Blob;
   instruments: Instrument[];
+  subscriptionTier: SubscriptionTier;
+  subscriptionExpiresAt?: Date;
   createdAt: Date;
   lastSyncAt?: Date;
 }

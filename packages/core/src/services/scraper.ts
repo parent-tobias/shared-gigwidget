@@ -136,23 +136,29 @@ function parseSongPageHtml(html: string, id: string): OzbcozSongDetail {
   const youtubeUrl = youtubeMatch ? `https://www.youtube.com/watch?v=${youtubeMatch[1]}` : undefined;
 
   // Extract the actual song content
-  // The content is typically in a <pre> tag or specific div
+  // ozbcoz.com stores content in a textarea with id="chordProSource"
   let content = '';
 
-  // Try to find ChordPro content in various containers
-  const preMatch = html.match(/<pre[^>]*class="[^"]*chordpro[^"]*"[^>]*>([\s\S]*?)<\/pre>/i);
-  if (preMatch) {
-    content = preMatch[1];
+  // Primary: Look for the chordProSource textarea (ozbcoz.com specific)
+  const textareaMatch = html.match(/<textarea[^>]*id=["']chordProSource["'][^>]*>([\s\S]*?)<\/textarea>/i);
+  if (textareaMatch) {
+    content = textareaMatch[1];
   } else {
-    // Try generic pre tag
-    const genericPreMatch = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
-    if (genericPreMatch) {
-      content = genericPreMatch[1];
+    // Fallback: Try to find ChordPro content in various containers
+    const preMatch = html.match(/<pre[^>]*class="[^"]*chordpro[^"]*"[^>]*>([\s\S]*?)<\/pre>/i);
+    if (preMatch) {
+      content = preMatch[1];
     } else {
-      // Try div with song content
-      const divMatch = html.match(/<div[^>]*class="[^"]*song[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-      if (divMatch) {
-        content = divMatch[1];
+      // Try generic pre tag
+      const genericPreMatch = html.match(/<pre[^>]*>([\s\S]*?)<\/pre>/i);
+      if (genericPreMatch) {
+        content = genericPreMatch[1];
+      } else {
+        // Try div with song content
+        const divMatch = html.match(/<div[^>]*class="[^"]*song[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+        if (divMatch) {
+          content = divMatch[1];
+        }
       }
     }
   }

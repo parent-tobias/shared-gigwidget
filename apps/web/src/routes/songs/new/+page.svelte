@@ -1,16 +1,53 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
-  import { INSTRUMENTS, MUSICAL_KEYS, type Instrument, type MusicalKey } from '@gigwidget/core';
+  import { INSTRUMENTS, MUSICAL_KEYS, type Instrument, type MusicalKey, type User, type CustomInstrument, hasPermission } from '@gigwidget/core';
 
   let title = $state('');
   let artist = $state('');
   let key = $state<MusicalKey | ''>('');
   let tempo = $state<number | ''>('');
-  let instrument = $state<Instrument>('guitar');
+  let selectedInstrument = $state<string>('guitar'); // Can be Instrument or custom:id
   let tags = $state('');
   let creating = $state(false);
   let error = $state<string | null>(null);
+  let user = $state<User | null>(null);
+  let canCreate = $state(false);
+  let customInstruments = $state<CustomInstrument[]>([]);
+  let hasLoaded = false;
+
+  // Parse the selected instrument value
+  function getInstrumentInfo(): { instrument: Instrument; customInstrumentId?: string; tuning?: string } {
+    if (selectedInstrument.startsWith('custom:')) {
+      const customId = selectedInstrument.replace('custom:', '');
+      const custom = customInstruments.find(c => c.id === customId);
+      if (custom) {
+        return {
+          instrument: custom.baseType,
+          customInstrumentId: custom.id,
+          tuning: custom.strings.join(','),
+        };
+      }
+    }
+    return { instrument: selectedInstrument as Instrument };
+  }
+
+  $effect(() => {
+    if (!browser || hasLoaded) return;
+    hasLoaded = true;
+    loadData();
+  });
+
+  async function loadData() {
+    const { getDatabase, CustomInstrumentRepository } = await import('@gigwidget/db');
+    const db = getDatabase();
+    const users = await db.users.toArray();
+    if (users.length > 0) {
+      user = users[0];
+      canCreate = hasPermission(user, 'create_songs');
+      customInstruments = await CustomInstrumentRepository.getByUser(user.id);
+    }
+  }
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
@@ -47,8 +84,10 @@
         visibility: 'private',
       });
 
-      const arrangement = createArrangement(song.id, instrument, {
+      const instrumentInfo = getInstrumentInfo();
+      const arrangement = createArrangement(song.id, instrumentInfo.instrument, {
         content: `{title: ${song.title}}\n{artist: ${song.artist || 'Unknown'}}\n\n`,
+        tuning: instrumentInfo.tuning,
       });
 
       await SongRepository.create(song);
@@ -75,6 +114,13 @@
     </div>
   </header>
 
+  {#if !canCreate && user}
+    <div class="upgrade-notice">
+      <h2>Upgrade Required</h2>
+      <p>Creating songs requires a Basic subscription or higher.</p>
+      <a href="/account" class="btn btn-primary">View Plans</a>
+    </div>
+  {:else}
   <form class="song-form" onsubmit={handleSubmit}>
     {#if error}
       <div class="error-message">{error}</div>
@@ -130,11 +176,25 @@
 
     <div class="form-group">
       <label for="instrument">Primary Instrument</label>
-      <select id="instrument" bind:value={instrument} disabled={creating}>
-        {#each INSTRUMENTS as inst}
-          <option value={inst}>{inst.charAt(0).toUpperCase() + inst.slice(1)}</option>
-        {/each}
+      <select id="instrument" bind:value={selectedInstrument} disabled={creating}>
+        <optgroup label="Standard Instruments">
+          {#each INSTRUMENTS as inst}
+            <option value={inst}>{inst.charAt(0).toUpperCase() + inst.slice(1)}</option>
+          {/each}
+        </optgroup>
+        {#if customInstruments.length > 0}
+          <optgroup label="My Custom Instruments">
+            {#each customInstruments as custom}
+              <option value="custom:{custom.id}">{custom.name} ({custom.baseType})</option>
+            {/each}
+          </optgroup>
+        {/if}
       </select>
+      {#if customInstruments.length === 0}
+        <span class="help-text">
+          <a href="/instruments">Create custom instruments</a> with custom tunings
+        </span>
+      {/if}
     </div>
 
     <div class="form-group">
@@ -159,9 +219,27 @@
       </button>
     </div>
   </form>
+  {/if}
 </main>
 
 <style>
+  .upgrade-notice {
+    text-align: center;
+    padding: var(--spacing-xl);
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-lg);
+    margin-top: var(--spacing-xl);
+  }
+
+  .upgrade-notice h2 {
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .upgrade-notice p {
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-lg);
+  }
+
   .page-header {
     padding: var(--spacing-lg) 0;
     border-bottom: 1px solid var(--color-border);
@@ -208,6 +286,15 @@
     font-weight: 500;
     font-size: 0.875rem;
     color: var(--color-text-muted);
+  }
+
+  .help-text {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .help-text a {
+    color: var(--color-primary);
   }
 
   .form-row {

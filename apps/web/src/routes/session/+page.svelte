@@ -1,11 +1,16 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import type { User, Song, QRSessionPayload, SongManifestEntry } from '@gigwidget/core';
+  import { hasPermission } from '@gigwidget/core';
 
   let user = $state<User | null>(null);
   let songs = $state<Song[]>([]);
   let loading = $state(true);
   let hasLoaded = false;
+
+  // Permission state
+  let canHost = $state(false);
+  let canJoin = $state(false);
 
   // Session state
   let sessionManager: any = null;
@@ -52,6 +57,8 @@
       if (users.length > 0) {
         user = users[0];
         songs = await db.songs.where({ ownerId: user.id }).toArray();
+        canHost = hasPermission(user, 'create_sessions');
+        canJoin = hasPermission(user, 'join_sessions');
       }
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -267,11 +274,20 @@
     </div>
   {:else}
     <div class="session-options">
-      <button class="option-card" onclick={() => (showHostModal = true)}>
-        <span class="option-icon">📡</span>
-        <span class="option-title">Start Session</span>
-        <span class="option-desc">Host a session and share your songs</span>
-      </button>
+      {#if canHost}
+        <button class="option-card" onclick={() => (showHostModal = true)}>
+          <span class="option-icon">📡</span>
+          <span class="option-title">Start Session</span>
+          <span class="option-desc">Host a session and share your songs</span>
+        </button>
+      {:else}
+        <div class="option-card disabled">
+          <span class="option-icon">📡</span>
+          <span class="option-title">Start Session</span>
+          <span class="option-desc">Requires Pro subscription</span>
+          <a href="/account" class="upgrade-link">Upgrade</a>
+        </div>
+      {/if}
 
       <button class="option-card" onclick={() => (showJoinModal = true)}>
         <span class="option-icon">📱</span>
@@ -439,6 +455,26 @@
   .option-desc {
     font-size: 0.875rem;
     color: var(--color-text-muted);
+  }
+
+  .option-card.disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .option-card.disabled:hover {
+    background-color: var(--color-bg-secondary);
+    border-color: transparent;
+  }
+
+  .upgrade-link {
+    margin-top: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-md);
+    background-color: var(--color-primary);
+    color: white;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    text-decoration: none;
   }
 
   .active-session {

@@ -108,6 +108,7 @@
 
     <section class="actions">
       <a href="/session" class="btn btn-secondary">Start or Join Session</a>
+      <a href="/account" class="btn btn-secondary">Account & Subscription</a>
     </section>
   {/if}
 </main>

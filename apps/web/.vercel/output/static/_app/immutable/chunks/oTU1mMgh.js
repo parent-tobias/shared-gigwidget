@@ -1,0 +1,2 @@
+import{t as b}from"./CxA4e2Oe.js";import{r as g}from"./cnc2SBSL.js";function A(r,h,t,N,f,i){var o=r.__className;if(g||o!==t||o===void 0){var a=b(t,N,i);(!g||a!==r.getAttribute("class"))&&(a==null?r.removeAttribute("class"):r.className=a),r.__className=t}else if(i&&f!==i)for(var l in i){var u=!!i[l];(f==null||u!==!!f[l])&&r.classList.toggle(l,u)}return i}export{A as s};
+//# sourceMappingURL=oTU1mMgh.js.map

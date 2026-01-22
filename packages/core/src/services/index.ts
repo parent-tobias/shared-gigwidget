@@ -38,6 +38,7 @@ export function createAnonymousUser(displayName?: string): User {
     id: generateLocalUserId(),
     displayName: displayName ?? `User ${Math.random().toString(36).substring(2, 6)}`,
     instruments: [],
+    subscriptionTier: 'free',
     createdAt: new Date(),
   };
 }
@@ -435,3 +436,21 @@ export {
   type OzbcozSearchResult,
   type OzbcozSongDetail,
 } from './scraper.js';
+
+// ============================================================================
+// Permissions Service (re-export)
+// ============================================================================
+
+export {
+  hasPermission,
+  hasAllPermissions,
+  hasAnyPermission,
+  getUserPermissions,
+  getEffectiveTier,
+  getRequiredTierForPermission,
+  canUpgrade,
+  getNextTier,
+  TIER_INFO,
+  type Permission,
+  type TierInfo,
+} from './permissions.js';

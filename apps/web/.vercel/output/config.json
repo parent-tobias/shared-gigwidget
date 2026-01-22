@@ -1,0 +1,59 @@
+{
+	"version": 3,
+	"routes": [
+		{
+			"src": "/_app/immutable/.+",
+			"headers": {
+				"cache-control": "public, immutable, max-age=31536000"
+			}
+		},
+		{
+			"handle": "filesystem"
+		},
+		{
+			"src": "^/?(?:/__data.json)?$",
+			"dest": "/"
+		},
+		{
+			"src": "^/account/?(?:/__data.json)?$",
+			"dest": "/account"
+		},
+		{
+			"src": "^/import/?(?:/__data.json)?$",
+			"dest": "/import"
+		},
+		{
+			"src": "^/instruments/?(?:/__data.json)?$",
+			"dest": "/instruments"
+		},
+		{
+			"src": "^/session/?(?:/__data.json)?$",
+			"dest": "/session"
+		},
+		{
+			"src": "^/sets/?(?:/__data.json)?$",
+			"dest": "/sets"
+		},
+		{
+			"src": "^/sets/([^/]+?)/?(?:/__data.json)?$",
+			"dest": "/sets/[id]"
+		},
+		{
+			"src": "^/songs/?(?:/__data.json)?$",
+			"dest": "/songs"
+		},
+		{
+			"src": "^/songs/new/?(?:/__data.json)?$",
+			"dest": "/songs/new"
+		},
+		{
+			"src": "^/songs/([^/]+?)/?(?:/__data.json)?$",
+			"dest": "/songs/[id]"
+		},
+		{
+			"src": "/.*",
+			"dest": "/![-]/catchall"
+		}
+	],
+	"overrides": {}
+}
