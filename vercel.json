@@ -2,5 +2,5 @@
   "buildCommand": "turbo run build --filter=@gigwidget/web",
   "devCommand": "turbo run dev --filter=@gigwidget/web",
   "installCommand": "pnpm install",
-  "root": "apps/web"
+  "buildOutputDirectory": "apps/web/.vercel/output"
 }
