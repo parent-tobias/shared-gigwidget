@@ -1,5 +1,6 @@
 {
   "buildCommand": "turbo run build --filter=@gigwidget/web",
   "devCommand": "turbo run dev --filter=@gigwidget/web",
-  "installCommand": "pnpm install"
+  "installCommand": "pnpm install --frozen-lockfile",
+  "framework": null
 }

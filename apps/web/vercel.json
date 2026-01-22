@@ -1,5 +1,0 @@
-{
-  "framework": "sveltekit",
-  "buildCommand": "vite build",
-  "outputDirectory": ".vercel/output"
-}
