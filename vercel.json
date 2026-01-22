@@ -1,5 +1,5 @@
 {
-  "buildCommand": "turbo run build --filter=@gigwidget/web",
+  "buildCommand": "cd apps/web && pnpm exec vite build",
   "installCommand": "pnpm install --frozen-lockfile",
-  "public": "apps/web/build"
+  "outputDirectory": "apps/web/build"
 }
