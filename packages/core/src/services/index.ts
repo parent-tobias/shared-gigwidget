@@ -38,7 +38,8 @@ export function createAnonymousUser(displayName?: string): User {
     id: generateLocalUserId(),
     displayName: displayName ?? `User ${Math.random().toString(36).substring(2, 6)}`,
     instruments: [],
-    subscriptionTier: 'free',
+    // Default to 'basic' for development; change to 'free' for production
+    subscriptionTier: 'basic',
     createdAt: new Date(),
   };
 }
