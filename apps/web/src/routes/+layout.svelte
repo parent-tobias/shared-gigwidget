@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { browser } from '$app/environment';
+  import SessionOverlay from '$lib/components/SessionOverlay.svelte';
 
   let { children } = $props();
 
@@ -43,6 +44,7 @@
   </div>
 {:else}
   {@render children()}
+  <SessionOverlay />
 {/if}
 
 <style>

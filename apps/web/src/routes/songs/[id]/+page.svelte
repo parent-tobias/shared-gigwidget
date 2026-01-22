@@ -23,6 +23,15 @@
   let showTransposeModal = $state(false);
   let preferFlats = $state(false);
 
+  // Song info editing state
+  let showInfoModal = $state(false);
+  let editTitle = $state('');
+  let editArtist = $state('');
+  let editKey = $state<MusicalKey | ''>('');
+  let editTempo = $state<number | ''>('');
+  let editTags = $state('');
+  let savingInfo = $state(false);
+
   // Sync state
   let syncStatus = $state<'synced' | 'syncing' | 'offline' | 'error'>('offline');
   let peerCount = $state(0);
@@ -266,6 +275,57 @@
   // Major keys for transpose-to-key dropdown
   const MAJOR_KEYS = ['C', 'C#', 'Db', 'D', 'D#', 'Eb', 'E', 'F', 'F#', 'Gb', 'G', 'G#', 'Ab', 'A', 'A#', 'Bb', 'B'];
   const MINOR_KEYS = ['Am', 'A#m', 'Bbm', 'Bm', 'Cm', 'C#m', 'Dm', 'D#m', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m'];
+
+  // Song info editing functions
+  function openInfoModal() {
+    if (!song) return;
+    editTitle = song.title;
+    editArtist = song.artist ?? '';
+    editKey = song.key ?? '';
+    editTempo = song.tempo ?? '';
+    editTags = song.tags.join(', ');
+    showInfoModal = true;
+  }
+
+  async function saveInfo() {
+    if (!song || !editTitle.trim()) return;
+
+    savingInfo = true;
+    try {
+      const { SongRepository } = await import('@gigwidget/db');
+
+      const parsedTags = editTags
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0);
+
+      await SongRepository.update(song.id, {
+        title: editTitle.trim(),
+        artist: editArtist.trim() || undefined,
+        key: editKey || undefined,
+        tempo: editTempo ? Number(editTempo) : undefined,
+        tags: parsedTags,
+      });
+
+      // Update local state
+      song = {
+        ...song,
+        title: editTitle.trim(),
+        artist: editArtist.trim() || undefined,
+        key: editKey || undefined,
+        tempo: editTempo ? Number(editTempo) : undefined,
+        tags: parsedTags,
+        updatedAt: new Date(),
+      };
+
+      showInfoModal = false;
+    } catch (err) {
+      console.error('Failed to save song info:', err);
+      error = 'Failed to save song info';
+    } finally {
+      savingInfo = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -290,6 +350,7 @@
         {/if}
       </div>
       <div class="header-actions">
+        <button class="btn btn-secondary" onclick={openInfoModal}>Info</button>
         <button class="btn btn-secondary" onclick={toggleEditMode}>
           {editMode ? 'View' : 'Edit'}
         </button>
@@ -404,8 +465,10 @@
 </main>
 
 {#if showTransposeModal}
-  <div class="modal-overlay" onclick={() => (showTransposeModal = false)}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="modal-overlay" role="dialog" aria-modal="true" aria-label="Transpose options" tabindex="-1" onclick={() => (showTransposeModal = false)} onkeydown={(e) => e.key === 'Escape' && (showTransposeModal = false)}>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="modal" role="document" onclick={(e) => e.stopPropagation()}>
       <h2>Transpose</h2>
 
       <div class="transpose-options">
@@ -454,6 +517,86 @@
           Close
         </button>
       </div>
+    </div>
+  </div>
+{/if}
+
+{#if showInfoModal}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="modal-overlay" role="dialog" aria-modal="true" aria-label="Song information" tabindex="-1" onclick={() => (showInfoModal = false)} onkeydown={(e) => e.key === 'Escape' && (showInfoModal = false)}>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="modal" role="document" onclick={(e) => e.stopPropagation()}>
+      <h2>Song Info</h2>
+
+      <form class="info-form" onsubmit={(e) => { e.preventDefault(); saveInfo(); }}>
+        <div class="form-group">
+          <label for="edit-title">Title *</label>
+          <input
+            type="text"
+            id="edit-title"
+            bind:value={editTitle}
+            placeholder="Enter song title"
+            required
+            disabled={savingInfo}
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="edit-artist">Artist</label>
+          <input
+            type="text"
+            id="edit-artist"
+            bind:value={editArtist}
+            placeholder="Enter artist name"
+            disabled={savingInfo}
+          />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="edit-key">Key</label>
+            <select id="edit-key" bind:value={editKey} disabled={savingInfo}>
+              <option value="">Select key</option>
+              {#each MUSICAL_KEYS as k}
+                <option value={k}>{k}</option>
+              {/each}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-tempo">Tempo (BPM)</label>
+            <input
+              type="number"
+              id="edit-tempo"
+              bind:value={editTempo}
+              placeholder="120"
+              min="20"
+              max="300"
+              disabled={savingInfo}
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="edit-tags">Tags</label>
+          <input
+            type="text"
+            id="edit-tags"
+            bind:value={editTags}
+            placeholder="rock, classic, favorite (comma-separated)"
+            disabled={savingInfo}
+          />
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick={() => (showInfoModal = false)} disabled={savingInfo}>
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary" disabled={savingInfo || !editTitle.trim()}>
+            {savingInfo ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 {/if}
@@ -775,7 +918,63 @@
   .modal-actions {
     display: flex;
     justify-content: flex-end;
+    gap: var(--spacing-sm);
     margin-top: var(--spacing-lg);
+  }
+
+  /* Song info form styles */
+  .info-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .form-group label {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+  }
+
+  .info-form input,
+  .info-form select {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    font-size: 1rem;
+  }
+
+  .info-form input:focus,
+  .info-form select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .info-form input:disabled,
+  .info-form select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .info-form select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23a0a0a0' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right var(--spacing-md) center;
+    padding-right: 2.5rem;
   }
 
   @media (max-width: 600px) {
@@ -790,6 +989,10 @@
 
     .header-actions .btn {
       flex: 1;
+    }
+
+    .form-row {
+      grid-template-columns: 1fr;
     }
   }
 </style>

@@ -1,7 +1,10 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import type { User, Song, QRSessionPayload, SongManifestEntry } from '@gigwidget/core';
+  import type { User, Song, QRSessionPayload } from '@gigwidget/core';
   import { hasPermission } from '@gigwidget/core';
+  import { getSessionStore } from '$lib/stores/sessionStore.svelte';
+
+  const session = getSessionStore();
 
   let user = $state<User | null>(null);
   let songs = $state<Song[]>([]);
@@ -11,15 +14,6 @@
   // Permission state
   let canHost = $state(false);
   let canJoin = $state(false);
-
-  // Session state
-  let sessionManager: any = null;
-  let activeSession = $state<any>(null);
-  let isHosting = $state(false);
-  let peerCount = $state(0);
-  let syncStatus = $state<'connected' | 'connecting' | 'disconnected'>('disconnected');
-  let qrPayload = $state<QRSessionPayload | null>(null);
-  let qrDataUrl = $state<string | null>(null);
 
   // Join modal
   let showJoinModal = $state(false);
@@ -37,15 +31,6 @@
     if (!browser || hasLoaded) return;
     hasLoaded = true;
     loadData();
-  });
-
-  // Cleanup on destroy
-  $effect(() => {
-    return () => {
-      if (sessionManager) {
-        sessionManager.destroy();
-      }
-    };
   });
 
   async function loadData() {
@@ -67,82 +52,16 @@
     }
   }
 
-  async function initSessionManager() {
-    if (sessionManager || !user) return;
-
-    try {
-      const { SessionManager } = await import('@gigwidget/sync');
-
-      sessionManager = new SessionManager({ user });
-
-      sessionManager.on('session-created', ({ session, qrPayload: payload }: any) => {
-        activeSession = session;
-        qrPayload = payload;
-        isHosting = true;
-        syncStatus = 'connected';
-        generateQRCode(payload);
-      });
-
-      sessionManager.on('session-joined', ({ session }: any) => {
-        activeSession = session;
-        isHosting = false;
-        syncStatus = 'connected';
-        showJoinModal = false;
-      });
-
-      sessionManager.on('session-left', () => {
-        activeSession = null;
-        qrPayload = null;
-        qrDataUrl = null;
-        isHosting = false;
-        peerCount = 0;
-        syncStatus = 'disconnected';
-      });
-
-      sessionManager.on('peers-changed', ({ count }: any) => {
-        peerCount = count;
-      });
-
-      sessionManager.on('sync-status', ({ synced }: any) => {
-        syncStatus = synced ? 'connected' : 'connecting';
-      });
-    } catch (err) {
-      console.error('Failed to init session manager:', err);
-    }
-  }
-
-  async function generateQRCode(payload: QRSessionPayload) {
-    try {
-      const { generateSessionQR } = await import('@gigwidget/sync');
-      qrDataUrl = await generateSessionQR(payload);
-    } catch (err) {
-      console.error('Failed to generate QR code:', err);
-    }
-  }
-
   async function startHosting() {
-    await initSessionManager();
-    if (!sessionManager || !user) return;
+    if (!user) return;
 
     creating = true;
     try {
-      const manifest: SongManifestEntry[] = (shareAll ? songs : songs.filter((s) => selectedSongIds.includes(s.id))).map(
-        (s) => ({
-          id: s.id,
-          title: s.title,
-          artist: s.artist,
-          key: s.key,
-          updatedAt: s.updatedAt.getTime(),
-        })
-      );
-
-      await sessionManager.createSession(manifest, {
-        type: 'webrtc',
-        libraryScope: shareAll ? 'full' : 'selected',
+      await session.startSession(user, songs, {
+        shareAll,
         selectedSongIds: shareAll ? undefined : selectedSongIds,
         password: sessionPassword || undefined,
       });
-
       showHostModal = false;
     } catch (err) {
       console.error('Failed to start session:', err);
@@ -184,25 +103,28 @@
     scanning = false;
     joinError = null;
 
-    try {
-      const payload: QRSessionPayload = JSON.parse(data);
+    if (!user) {
+      joinError = 'User not loaded';
+      return;
+    }
 
-      await initSessionManager();
-      if (!sessionManager) {
-        joinError = 'Session manager not ready';
-        return;
+    try {
+      // Try to decode - the data might be base64 encoded or raw JSON
+      let payload: QRSessionPayload;
+      try {
+        // First try base64 decode (compact format)
+        const { decodeSessionPayload } = await import('@gigwidget/sync');
+        payload = decodeSessionPayload(data);
+      } catch {
+        // Fallback to raw JSON
+        payload = JSON.parse(data);
       }
 
-      await sessionManager.joinSession({ payload });
+      await session.joinSession(user, payload);
+      showJoinModal = false;
     } catch (err) {
       console.error('Failed to join session:', err);
       joinError = err instanceof Error ? err.message : 'Failed to join session';
-    }
-  }
-
-  async function leaveSession() {
-    if (sessionManager) {
-      await sessionManager.leaveSession();
     }
   }
 
@@ -230,33 +152,33 @@
 
   {#if loading}
     <div class="loading">Loading...</div>
-  {:else if activeSession}
+  {:else if session.isActive}
     <div class="active-session">
       <div class="session-status">
-        <span class="status-indicator" class:connected={syncStatus === 'connected'}></span>
+        <span class="status-indicator" class:connected={session.status === 'connected'}></span>
         <span class="status-text">
-          {#if isHosting}
+          {#if session.isHosting}
             Hosting Session
           {:else}
-            Connected to {qrPayload?.hostName ?? 'Host'}
+            Connected to {session.qrPayload?.hostName ?? 'Host'}
           {/if}
         </span>
-        <span class="peer-count">{peerCount} peer{peerCount !== 1 ? 's' : ''}</span>
+        <span class="peer-count">{session.peerCount} peer{session.peerCount !== 1 ? 's' : ''}</span>
       </div>
 
-      {#if isHosting && qrDataUrl}
+      {#if session.isHosting && session.qrDataUrl}
         <div class="qr-section">
           <h3>Scan to Join</h3>
-          <img src={qrDataUrl} alt="Session QR Code" class="qr-code" />
+          <img src={session.qrDataUrl} alt="Session QR Code" class="qr-code" />
           <p class="qr-hint">Others can scan this QR code to join your session</p>
         </div>
       {/if}
 
-      {#if qrPayload?.libraryManifest}
+      {#if session.qrPayload?.libraryManifest}
         <div class="shared-songs">
-          <h3>Shared Songs ({qrPayload.libraryManifest.length})</h3>
+          <h3>Shared Songs ({session.qrPayload.libraryManifest.length})</h3>
           <ul class="song-list">
-            {#each qrPayload.libraryManifest as song (song.id)}
+            {#each session.qrPayload.libraryManifest as song (song.id)}
               <li class="song-item">
                 <span class="song-title">{song.title}</span>
                 {#if song.artist}
@@ -268,9 +190,12 @@
         </div>
       {/if}
 
-      <button class="btn btn-danger" onclick={leaveSession}>
-        {isHosting ? 'End Session' : 'Leave Session'}
-      </button>
+      <div class="session-actions">
+        <p class="session-note">The session overlay will stay visible as you navigate the app.</p>
+        <button class="btn btn-danger" onclick={() => session.leaveSession()}>
+          {session.isHosting ? 'End Session' : 'Leave Session'}
+        </button>
+      </div>
     </div>
   {:else}
     <div class="session-options">
@@ -571,6 +496,19 @@
   .song-artist {
     font-size: 0.75rem;
     color: var(--color-text-muted);
+  }
+
+  .session-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-md);
+  }
+
+  .session-note {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    text-align: center;
   }
 
   .btn-danger {

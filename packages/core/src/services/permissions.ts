@@ -8,7 +8,7 @@
  * - mod: All pro + create system-default chords and instruments
  */
 
-import type { SubscriptionTier, User } from '../models/index.js';
+import { SUBSCRIPTION_TIERS, type SubscriptionTier, type User } from '../models/index.js';
 
 // ============================================================================
 // Permission Types
@@ -128,7 +128,13 @@ export function getEffectiveTier(user: User | null): SubscriptionTier {
     return 'free';
   }
 
-  return user.subscriptionTier;
+  // Fallback to 'free' if subscriptionTier is undefined or invalid
+  const tier = user.subscriptionTier;
+  if (!tier || !SUBSCRIPTION_TIERS.includes(tier)) {
+    return 'free';
+  }
+
+  return tier;
 }
 
 // ============================================================================
