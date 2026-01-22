@@ -37,3 +37,4 @@ apps/mobile/ios/
 
 # Tauri
 apps/desktop/src-tauri/target/
+.vercel
