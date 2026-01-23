@@ -38,7 +38,9 @@ export function initializeAuth(): void {
   initialized = true;
 
   // Get initial session
+  console.log('[Auth] Calling getSession...');
   supabase.auth.getSession().then(async ({ data: { session }, error }) => {
+    console.log('[Auth] getSession completed:', { hasSession: !!session, error: error?.message });
     if (error) {
       console.error('[Auth] Error getting session:', error);
       authError = error.message;
@@ -54,6 +56,10 @@ export function initializeAuth(): void {
         await initializeSync();
       }
     }
+    authLoading = false;
+  }).catch((err) => {
+    console.error('[Auth] getSession threw:', err);
+    authError = err?.message || 'Failed to get session';
     authLoading = false;
   });
 

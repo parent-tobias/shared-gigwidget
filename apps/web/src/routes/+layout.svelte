@@ -17,7 +17,7 @@
   $effect(() => {
     if (!browser) return;
 
-    console.log('[Gigwidget] $effect running in browser');
+    console.log('[Gigwidget] $effect running in browser, URL:', window.location.href);
 
     // Run initialization
     (async () => {
@@ -42,6 +42,7 @@
         console.log('[Gigwidget] Auth listener initialized');
 
         initialized = true;
+        console.log('[Gigwidget] Layout initialized, rendering children');
       } catch (err) {
         console.error('[Gigwidget] Failed to initialize:', err);
         error = err instanceof Error ? err.message : String(err);
