@@ -15,12 +15,10 @@ const BOOTSTRAP_CACHE = 'gigwidget-bootstrap-v1';
 // Assets to cache on install
 const PRECACHE_ASSETS = [
   '/',
-  '/join/',
-  '/join/index.html',
 ];
 
 // Bootstrap page - use cache-first strategy
-const BOOTSTRAP_ROUTES = ['/join', '/join/', '/join/index.html'];
+const BOOTSTRAP_ROUTES = ['/join', '/join/'];
 
 // Install event - precache assets
 self.addEventListener('install', (event) => {
@@ -30,16 +28,28 @@ self.addEventListener('install', (event) => {
     Promise.all([
       // Precache main assets
       caches.open(CACHE_NAME).then((cache) => {
-        return cache.addAll(PRECACHE_ASSETS.filter((url) => !BOOTSTRAP_ROUTES.includes(url)));
+        // Try to cache assets, but don't fail if some don't exist
+        return Promise.allSettled(
+          PRECACHE_ASSETS.filter((url) => !BOOTSTRAP_ROUTES.includes(url)).map((url) =>
+            cache.add(url).catch((err) => console.warn(`[SW] Failed to cache ${url}:`, err))
+          )
+        );
       }),
       // Precache bootstrap page separately
       caches.open(BOOTSTRAP_CACHE).then((cache) => {
-        return cache.addAll(BOOTSTRAP_ROUTES);
+        return Promise.allSettled(
+          BOOTSTRAP_ROUTES.map((url) =>
+            cache.add(url).catch((err) => console.warn(`[SW] Failed to cache ${url}:`, err))
+          )
+        );
       }),
     ]).then(() => {
       console.log('[SW] Precaching complete');
       // Take control immediately
       return self.skipWaiting();
+    })
+    .catch((err) => {
+      console.error('[SW] Error during install:', err);
     })
   );
 });
