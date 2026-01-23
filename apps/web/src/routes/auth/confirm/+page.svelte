@@ -14,6 +14,8 @@
     const token_hash = $page.url.searchParams.get('token_hash');
     const type = $page.url.searchParams.get('type') as 'email' | 'recovery' | 'invite' | 'magiclink' | null;
 
+    console.log('[Auth Confirm] Starting verification with:', { token_hash: token_hash?.slice(0, 8) + '...', type });
+
     if (!token_hash || !type) {
       status = 'error';
       errorMessage = 'Invalid confirmation link. Missing required parameters.';
@@ -21,17 +23,20 @@
     }
 
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      console.log('[Auth Confirm] Calling verifyOtp...');
+      const { data, error } = await supabase.auth.verifyOtp({
         token_hash,
         type,
       });
+      console.log('[Auth Confirm] verifyOtp response:', { data, error });
 
       if (error) {
         status = 'error';
         errorMessage = error.message;
-        console.error('[Auth] Verification error:', error);
+        console.error('[Auth Confirm] Verification error:', error);
       } else {
         status = 'success';
+        console.log('[Auth Confirm] Success! Redirecting...');
         // Redirect to account page after a brief moment
         setTimeout(() => {
           goto('/account');
@@ -40,7 +45,7 @@
     } catch (err) {
       status = 'error';
       errorMessage = err instanceof Error ? err.message : 'Verification failed';
-      console.error('[Auth] Verification exception:', err);
+      console.error('[Auth Confirm] Verification exception:', err);
     }
   });
 </script>
