@@ -93,6 +93,10 @@
       await SongRepository.create(song);
       await ArrangementRepository.create(arrangement);
 
+      // Sync to cloud if authenticated
+      const { syncSongToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongToCloud(song);
+
       goto(`/songs/${song.id}`);
     } catch (err) {
       console.error('Failed to create song:', err);

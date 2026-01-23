@@ -2,10 +2,31 @@
   import { browser } from '$app/environment';
   import type { User, SubscriptionTier, Instrument } from '@gigwidget/core';
   import { TIER_INFO, getEffectiveTier, getUserPermissions, INSTRUMENTS } from '@gigwidget/core';
+  import {
+    initializeAuth,
+    getAuthState,
+    sendMagicLink,
+    signOut,
+    isAuthenticated,
+    getSupabaseEmail,
+  } from '$lib/stores/authStore.svelte';
+  import { getSyncState, forceSync, isSyncing } from '$lib/stores/syncStore.svelte';
 
   let user = $state<User | null>(null);
   let loading = $state(true);
   let hasLoaded = false;
+
+  // Auth state
+  const auth = getAuthState();
+  const sync = getSyncState();
+  let loginEmail = $state('');
+  let magicLinkSent = $state(false);
+  let authActionLoading = $state(false);
+  let authActionError = $state<string | null>(null);
+
+  async function handleForceSync() {
+    await forceSync();
+  }
 
   // Profile editing state
   let editDisplayName = $state('');
@@ -28,9 +49,37 @@
   $effect(() => {
     if (!browser || hasLoaded) return;
     hasLoaded = true;
+    initializeAuth();
     loadUser();
     loadPreferences();
   });
+
+  async function handleSendMagicLink() {
+    if (!loginEmail.trim()) {
+      authActionError = 'Please enter your email address';
+      return;
+    }
+
+    authActionLoading = true;
+    authActionError = null;
+
+    const { error } = await sendMagicLink(loginEmail.trim());
+
+    if (error) {
+      authActionError = error;
+    } else {
+      magicLinkSent = true;
+    }
+
+    authActionLoading = false;
+  }
+
+  async function handleSignOut() {
+    authActionLoading = true;
+    authActionError = null;
+    await signOut();
+    authActionLoading = false;
+  }
 
   // Sync form state with loaded user
   $effect(() => {
@@ -207,6 +256,93 @@
     <a href="/" class="back-link">&larr; Home</a>
     <h1>Account</h1>
   </header>
+
+  <!-- Cloud Sync / Auth Section -->
+  <section class="auth-section">
+    <h2>Cloud Sync</h2>
+
+    {#if auth.loading}
+      <div class="loading">Checking login status...</div>
+    {:else if isAuthenticated()}
+      <div class="auth-status logged-in">
+        <div class="auth-info">
+          <span class="status-badge">Signed In</span>
+          <p class="auth-email">{getSupabaseEmail()}</p>
+          <p class="auth-desc">Your songs sync automatically across devices.</p>
+
+          <!-- Sync Status -->
+          <div class="sync-status">
+            {#if sync.status === 'syncing'}
+              <span class="sync-indicator syncing">Syncing...</span>
+            {:else if sync.status === 'error'}
+              <span class="sync-indicator error">Sync error: {sync.error}</span>
+            {:else if sync.lastSyncAt}
+              <span class="sync-indicator idle">
+                Last synced: {sync.lastSyncAt.toLocaleTimeString()}
+              </span>
+            {:else}
+              <span class="sync-indicator idle">Ready to sync</span>
+            {/if}
+            {#if sync.pendingChanges > 0}
+              <span class="pending-badge">{sync.pendingChanges} pending</span>
+            {/if}
+          </div>
+        </div>
+        <div class="auth-actions">
+          <button
+            class="btn btn-secondary"
+            onclick={handleForceSync}
+            disabled={isSyncing()}
+          >
+            {isSyncing() ? 'Syncing...' : 'Sync Now'}
+          </button>
+          <button
+            class="btn btn-secondary"
+            onclick={handleSignOut}
+            disabled={authActionLoading}
+          >
+            {authActionLoading ? 'Signing out...' : 'Sign Out'}
+          </button>
+        </div>
+      </div>
+    {:else}
+      <div class="auth-status logged-out">
+        {#if magicLinkSent}
+          <div class="magic-link-sent">
+            <h3>Check your email</h3>
+            <p>We sent a magic link to <strong>{loginEmail}</strong></p>
+            <p class="auth-desc">Click the link in the email to sign in. You can close this page.</p>
+            <button class="btn btn-secondary" onclick={() => { magicLinkSent = false; loginEmail = ''; }}>
+              Use a different email
+            </button>
+          </div>
+        {:else}
+          <p class="auth-desc">Sign in to sync your songs across all your devices.</p>
+
+          {#if authActionError}
+            <div class="error-message">{authActionError}</div>
+          {/if}
+
+          <form class="auth-form" onsubmit={(e) => { e.preventDefault(); handleSendMagicLink(); }}>
+            <div class="form-group">
+              <label for="login-email">Email address</label>
+              <input
+                type="email"
+                id="login-email"
+                bind:value={loginEmail}
+                placeholder="you@example.com"
+                disabled={authActionLoading}
+                required
+              />
+            </div>
+            <button type="submit" class="btn btn-primary" disabled={authActionLoading}>
+              {authActionLoading ? 'Sending...' : 'Send Magic Link'}
+            </button>
+          </form>
+        {/if}
+      </div>
+    {/if}
+  </section>
 
   {#if loading}
     <div class="loading">Loading...</div>
@@ -395,6 +531,111 @@
   .back-link {
     font-size: 0.875rem;
     color: var(--color-text-muted);
+  }
+
+  /* Auth Section */
+  .auth-section {
+    margin-top: var(--spacing-xl);
+    padding-bottom: var(--spacing-xl);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .auth-status {
+    margin-top: var(--spacing-md);
+  }
+
+  .auth-status.logged-in {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    background: var(--color-bg-secondary);
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+  }
+
+  .auth-info {
+    flex: 1;
+  }
+
+  .status-badge {
+    display: inline-block;
+    background: #4ade80;
+    color: #000;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .auth-email {
+    font-weight: 500;
+    margin: var(--spacing-sm) 0 0;
+  }
+
+  .auth-desc {
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    margin: var(--spacing-xs) 0 0;
+  }
+
+  .auth-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .sync-status {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-sm);
+  }
+
+  .sync-indicator {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .sync-indicator.syncing {
+    color: var(--color-primary);
+  }
+
+  .sync-indicator.error {
+    color: #ef4444;
+  }
+
+  .pending-badge {
+    font-size: 0.65rem;
+    background: var(--color-primary);
+    color: white;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+
+  .auth-form {
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .magic-link-sent {
+    background: rgba(74, 222, 128, 0.1);
+    border: 1px solid #4ade80;
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+  }
+
+  .magic-link-sent h3 {
+    color: #4ade80;
+    margin: 0 0 var(--spacing-sm);
+  }
+
+  .magic-link-sent p {
+    margin: 0 0 var(--spacing-sm);
   }
 
   .current-plan, .plans {
@@ -646,6 +887,18 @@
     .page-header h1 {
       font-size: 1.5rem;
       margin: 0;
+    }
+
+    .auth-status.logged-in {
+      flex-direction: column;
+    }
+
+    .auth-status.logged-in .btn {
+      width: 100%;
+    }
+
+    .auth-form {
+      max-width: 100%;
     }
 
     .profile-form,

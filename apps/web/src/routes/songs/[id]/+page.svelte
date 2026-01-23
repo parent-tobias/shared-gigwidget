@@ -2,7 +2,7 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import type { Song, Arrangement, MusicalKey } from '@gigwidget/core';
+  import type { Song, Arrangement, MusicalKey, Visibility } from '@gigwidget/core';
   import { MUSICAL_KEYS } from '@gigwidget/core';
 
   let song = $state<Song | null>(null);
@@ -32,6 +32,7 @@
   let editKey = $state<MusicalKey | ''>('');
   let editTempo = $state<number | ''>('');
   let editTags = $state('');
+  let editVisibility = $state<Visibility>('private');
   let savingInfo = $state(false);
 
   // Sync state
@@ -262,6 +263,10 @@
         version: selectedArrangement.version + 1,
         updatedAt: new Date(),
       };
+
+      // Sync to cloud if authenticated
+      const { syncSongToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongToCloud(song);
     } catch (err) {
       console.error('Failed to save:', err);
     } finally {
@@ -291,6 +296,11 @@
     try {
       const { SongRepository } = await import('@gigwidget/db');
       await SongRepository.delete(song.id);
+
+      // Delete from cloud if authenticated
+      const { deleteSongFromCloud } = await import('$lib/stores/syncStore.svelte');
+      await deleteSongFromCloud(song.id);
+
       goto('/songs');
     } catch (err) {
       console.error('Failed to delete song:', err);
@@ -344,6 +354,7 @@
     editKey = song.key ?? '';
     editTempo = song.tempo ?? '';
     editTags = song.tags.join(', ');
+    editVisibility = song.visibility;
     showInfoModal = true;
   }
 
@@ -365,6 +376,7 @@
         key: editKey || undefined,
         tempo: editTempo ? Number(editTempo) : undefined,
         tags: parsedTags,
+        visibility: editVisibility,
       });
 
       // Update local state
@@ -375,8 +387,13 @@
         key: editKey || undefined,
         tempo: editTempo ? Number(editTempo) : undefined,
         tags: parsedTags,
+        visibility: editVisibility,
         updatedAt: new Date(),
       };
+
+      // Sync to cloud if authenticated
+      const { syncSongToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongToCloud(song);
 
       showInfoModal = false;
     } catch (err) {
@@ -404,7 +421,14 @@
     <header class="page-header">
       <div class="header-left">
         <a href="/songs" class="back-link">← Back to Songs</a>
-        <h1>{song.title}</h1>
+        <div class="title-row">
+          <h1>{song.title}</h1>
+          {#if song.visibility === 'public'}
+            <span class="visibility-badge public">Public</span>
+          {:else}
+            <span class="visibility-badge private">Private</span>
+          {/if}
+        </div>
         {#if song.artist}
           <span class="song-artist">by {song.artist}</span>
         {/if}
@@ -665,6 +689,38 @@
           </div>
         </div>
 
+        <div class="form-section">
+          <h3>Visibility</h3>
+          <div class="visibility-options">
+            <label class="visibility-option" class:selected={editVisibility === 'private'}>
+              <input
+                type="radio"
+                name="visibility"
+                value="private"
+                bind:group={editVisibility}
+                disabled={savingInfo}
+              />
+              <div class="visibility-content">
+                <span class="visibility-label">Private</span>
+                <span class="visibility-desc">Only you can see this song</span>
+              </div>
+            </label>
+            <label class="visibility-option" class:selected={editVisibility === 'public'}>
+              <input
+                type="radio"
+                name="visibility"
+                value="public"
+                bind:group={editVisibility}
+                disabled={savingInfo}
+              />
+              <div class="visibility-content">
+                <span class="visibility-label">Public</span>
+                <span class="visibility-desc">Anyone can discover and view this song</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" onclick={() => (showInfoModal = false)} disabled={savingInfo}>
             Cancel
@@ -691,6 +747,40 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
+  }
+
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+  }
+
+  .title-row h1 {
+    margin: 0;
+  }
+
+  .visibility-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .visibility-badge.public {
+    background-color: rgba(74, 222, 128, 0.2);
+    color: #4ade80;
+    border: 1px solid #4ade80;
+  }
+
+  .visibility-badge.private {
+    background-color: rgba(148, 163, 184, 0.2);
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
   }
 
   .back-link {
@@ -1068,6 +1158,55 @@
     background-repeat: no-repeat;
     background-position: right var(--spacing-md) center;
     padding-right: 2.5rem;
+  }
+
+  /* Visibility options */
+  .visibility-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .visibility-option {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    background-color: var(--color-bg-secondary);
+    border: 2px solid var(--color-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .visibility-option:hover {
+    border-color: var(--color-text-muted);
+  }
+
+  .visibility-option.selected {
+    border-color: var(--color-primary);
+    background-color: rgba(233, 69, 96, 0.1);
+  }
+
+  .visibility-option input[type="radio"] {
+    width: auto;
+    margin-top: 2px;
+  }
+
+  .visibility-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .visibility-label {
+    font-weight: 600;
+    font-size: 0.875rem;
+  }
+
+  .visibility-desc {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
   }
 
   @media (max-width: 1024px) {

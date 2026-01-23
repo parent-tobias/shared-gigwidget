@@ -3,6 +3,7 @@
   import { browser } from '$app/environment';
   import SessionOverlay from '$lib/components/SessionOverlay.svelte';
   import { getSessionStore } from '$lib/stores/sessionStore.svelte';
+  import { initializeAuth } from '$lib/stores/authStore.svelte';
 
   let { children } = $props();
 
@@ -35,6 +36,11 @@
         console.log('[Gigwidget] Import successful, calling initializeDatabase...');
         await initializeDatabase();
         console.log('[Gigwidget] Database initialized');
+
+        // Initialize auth listener
+        initializeAuth();
+        console.log('[Gigwidget] Auth listener initialized');
+
         initialized = true;
       } catch (err) {
         console.error('[Gigwidget] Failed to initialize:', err);
