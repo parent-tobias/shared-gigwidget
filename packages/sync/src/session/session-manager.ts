@@ -16,13 +16,17 @@ import type {
   Session,
   SessionType,
   QRSessionPayload,
+  BootstrapSessionPayload,
   SongManifestEntry,
   User,
+  AwarenessParticipant,
+  SessionParticipantInfo,
 } from '@gigwidget/core';
 import { createSession, generateId } from '@gigwidget/core';
 import { WebrtcProvider } from 'y-webrtc';
 import { BluetoothProvider, isBluetoothAvailable } from '../providers/index.js';
 import { Observable } from '../providers/observable.js';
+import { BootstrapHost, BOOTSTRAP_CHANNEL_LABEL } from '../bootstrap/index.js';
 
 // Default WebRTC signaling servers
 const DEFAULT_SIGNALING_SERVERS = [
@@ -46,6 +50,12 @@ export interface CreateSessionOptions {
   selectedSongIds?: string[];
   expiresInMs?: number;
   password?: string;
+  /** Enable bootstrap mode for app + data transfer to new devices */
+  enableBootstrap?: boolean;
+  /** Pre-loaded app bundle for bootstrap (Brotli compressed) */
+  appBundle?: ArrayBuffer;
+  /** Song Yjs documents to share during bootstrap */
+  songDocs?: Map<string, Y.Doc>;
 }
 
 export interface JoinSessionOptions {
@@ -57,6 +67,8 @@ export class SessionManager extends Observable {
   private sessionDoc: Y.Doc | null = null;
   private webrtcProvider: WebrtcProvider | null = null;
   private bluetoothProvider: BluetoothProvider | null = null;
+  private bootstrapHost: BootstrapHost | null = null;
+  private avatarThumbnail: string | undefined;
 
   readonly user: User;
   private readonly signalingServers: string[];
@@ -67,6 +79,45 @@ export class SessionManager extends Observable {
     this.user = options.user;
     this.signalingServers = options.signalingServers ?? DEFAULT_SIGNALING_SERVERS;
     this.defaultExpiryMs = options.defaultExpiryMs ?? 4 * 60 * 60 * 1000; // 4 hours
+
+    // Create avatar thumbnail for awareness sharing
+    this.createAvatarThumbnail();
+  }
+
+  /**
+   * Create a small thumbnail from avatar blob for sharing via awareness.
+   * Keeps size under 5KB for efficient P2P transfer.
+   */
+  private async createAvatarThumbnail(): Promise<void> {
+    if (!this.user.avatar) {
+      this.avatarThumbnail = undefined;
+      return;
+    }
+
+    try {
+      const img = new Image();
+      const url = URL.createObjectURL(this.user.avatar);
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = url;
+      });
+
+      const canvas = document.createElement('canvas');
+      const size = 48;
+      canvas.width = size;
+      canvas.height = size;
+
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, size, size);
+
+      this.avatarThumbnail = canvas.toDataURL('image/jpeg', 0.5);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to create avatar thumbnail:', err);
+      this.avatarThumbnail = undefined;
+    }
   }
 
   get isHosting(): boolean {
@@ -102,7 +153,7 @@ export class SessionManager extends Observable {
   async createSession(
     songManifest: SongManifestEntry[],
     options: CreateSessionOptions = {}
-  ): Promise<QRSessionPayload> {
+  ): Promise<QRSessionPayload | BootstrapSessionPayload> {
     // Cleanup any existing session
     await this.leaveSession();
 
@@ -118,6 +169,11 @@ export class SessionManager extends Observable {
 
     // Create session document for real-time coordination
     this.sessionDoc = new Y.Doc({ guid: `session-${session.id}` });
+
+    // Initialize bootstrap host if enabled
+    if (options.enableBootstrap && options.songDocs) {
+      await this.initBootstrapHost(options.appBundle, options.songDocs);
+    }
 
     // Initialize session based on transport type
     switch (type) {
@@ -135,20 +191,82 @@ export class SessionManager extends Observable {
     this.activeSession = session;
 
     // Generate QR payload
-    const qrPayload: QRSessionPayload = {
-      sessionId: session.id,
-      type: session.type,
-      hostId: this.user.id,
-      hostName: this.user.displayName,
-      connectionInfo: session.connectionInfo,
-      libraryManifest: songManifest,
-      createdAt: session.createdAt.getTime(),
-      expiresAt: session.expiresAt?.getTime(),
-    };
+    let qrPayload: QRSessionPayload | BootstrapSessionPayload;
+
+    if (options.enableBootstrap && this.bootstrapHost) {
+      const bootstrapInfo = this.bootstrapHost.getBootstrapInfo();
+      qrPayload = {
+        sessionId: session.id,
+        type: session.type,
+        hostId: this.user.id,
+        hostName: this.user.displayName,
+        connectionInfo: session.connectionInfo,
+        libraryManifest: songManifest,
+        createdAt: session.createdAt.getTime(),
+        expiresAt: session.expiresAt?.getTime(),
+        bootstrapVersion: 1,
+        bundleHash: bootstrapInfo.bundleHash,
+        bundleSize: bootstrapInfo.bundleSize,
+        songDataSize: bootstrapInfo.songDataSize,
+      } satisfies BootstrapSessionPayload;
+    } else {
+      qrPayload = {
+        sessionId: session.id,
+        type: session.type,
+        hostId: this.user.id,
+        hostName: this.user.displayName,
+        connectionInfo: session.connectionInfo,
+        libraryManifest: songManifest,
+        createdAt: session.createdAt.getTime(),
+        expiresAt: session.expiresAt?.getTime(),
+      };
+    }
 
     this.emit('session-created', [{ session, qrPayload }]);
 
     return qrPayload;
+  }
+
+  /**
+   * Initialize bootstrap host for serving app bundle and song data
+   */
+  private async initBootstrapHost(
+    appBundle: ArrayBuffer | undefined,
+    songDocs: Map<string, Y.Doc>
+  ): Promise<void> {
+    this.bootstrapHost = new BootstrapHost({
+      appBundle,
+      songDocs,
+      onBootstrapRequest: (peerId) => {
+        this.emit('bootstrap-request', [{ peerId }]);
+      },
+      onTransferProgress: (peerId, type, progress) => {
+        this.emit('bootstrap-progress', [{ peerId, type, progress }]);
+      },
+      onTransferComplete: (peerId, type, success) => {
+        this.emit('bootstrap-complete', [{ peerId, type, success }]);
+      },
+    });
+
+    if (appBundle) {
+      await this.bootstrapHost.setAppBundle(appBundle);
+    }
+  }
+
+  /**
+   * Update song documents for bootstrap serving
+   */
+  updateBootstrapSongs(songDocs: Map<string, Y.Doc>): void {
+    if (this.bootstrapHost) {
+      this.bootstrapHost.setSongDocs(songDocs);
+    }
+  }
+
+  /**
+   * Get the bootstrap host instance (for handling incoming data channels)
+   */
+  getBootstrapHost(): BootstrapHost | null {
+    return this.bootstrapHost;
   }
 
   /**
@@ -211,6 +329,11 @@ export class SessionManager extends Observable {
       this.bluetoothProvider = null;
     }
 
+    if (this.bootstrapHost) {
+      this.bootstrapHost.destroy();
+      this.bootstrapHost = null;
+    }
+
     if (this.sessionDoc) {
       this.sessionDoc.destroy();
       this.sessionDoc = null;
@@ -269,6 +392,23 @@ export class SessionManager extends Observable {
   private setupWebRTCListeners(): void {
     if (!this.webrtcProvider) return;
 
+    const awareness = this.webrtcProvider.awareness;
+
+    // Set local user info on awareness
+    awareness.setLocalStateField('user', {
+      displayName: this.user.displayName,
+      avatarThumbnail: this.avatarThumbnail,
+      instruments: this.user.instruments,
+      isHost: this.isHosting,
+      joinedAt: Date.now(),
+    } as AwarenessParticipant);
+
+    // Listen for awareness changes to track participants
+    awareness.on('change', () => {
+      const participants = this.getParticipants();
+      this.emit('participants-changed', [{ participants }]);
+    });
+
     this.webrtcProvider.on('synced', (event: { synced: boolean }) => {
       this.emit('sync-status', [{ synced: event.synced, transport: 'webrtc' }]);
     });
@@ -276,6 +416,32 @@ export class SessionManager extends Observable {
     this.webrtcProvider.on('peers', (event: { webrtcPeers: unknown[] }) => {
       this.emit('peers-changed', [{ count: event.webrtcPeers.length, transport: 'webrtc' }]);
     });
+  }
+
+  /**
+   * Get list of all participants from awareness
+   */
+  getParticipants(): SessionParticipantInfo[] {
+    if (!this.webrtcProvider) return [];
+
+    const awareness = this.webrtcProvider.awareness;
+    const states = awareness.getStates();
+    const participants: SessionParticipantInfo[] = [];
+
+    states.forEach((state: Record<string, unknown>, clientId: number) => {
+      const user = state.user as AwarenessParticipant | undefined;
+      if (user) {
+        participants.push({
+          clientId,
+          displayName: user.displayName,
+          avatarThumbnail: user.avatarThumbnail,
+          instruments: user.instruments,
+          isHost: user.isHost,
+        });
+      }
+    });
+
+    return participants;
   }
 
   // ============================================================================
@@ -350,6 +516,16 @@ export class SessionManager extends Observable {
   private async connectLocalNetwork(_session: Session): Promise<void> {
     // Placeholder for native implementation
     console.warn('Local network transport not yet implemented');
+  }
+
+  /**
+   * Handle incoming data channel for bootstrap
+   * Call this when a new peer connects with a bootstrap data channel
+   */
+  handleBootstrapChannel(dataChannel: RTCDataChannel, peerId: string): void {
+    if (this.bootstrapHost && dataChannel.label === BOOTSTRAP_CHANNEL_LABEL) {
+      this.bootstrapHost.handleDataChannel(dataChannel, peerId);
+    }
   }
 
   destroy(): void {

@@ -227,6 +227,53 @@ export interface SongManifestEntry {
 }
 
 // ============================================================================
+// Bootstrap Domain (P2P App Transfer)
+// ============================================================================
+
+/**
+ * Extended QR payload for bootstrap-enabled sessions.
+ * Includes information needed for the bootstrap page to receive
+ * the app bundle and song data from the host.
+ */
+export interface BootstrapSessionPayload extends QRSessionPayload {
+  /** Bootstrap protocol version */
+  bootstrapVersion: number;
+  /** SHA-256 hash of the app bundle for integrity verification */
+  bundleHash?: string;
+  /** Size of the compressed app bundle in bytes */
+  bundleSize?: number;
+  /** Estimated size of song data in bytes */
+  songDataSize?: number;
+}
+
+// ============================================================================
+// Session Awareness Domain
+// ============================================================================
+
+/**
+ * Participant info shared via Yjs awareness for real-time presence.
+ * Kept small for efficient P2P transfer.
+ */
+export interface AwarenessParticipant {
+  displayName: string;
+  avatarThumbnail?: string; // Base64 encoded small thumbnail (< 5KB)
+  instruments: Instrument[];
+  isHost: boolean;
+  joinedAt: number; // timestamp
+}
+
+/**
+ * Session participant info with client ID for UI display.
+ */
+export interface SessionParticipantInfo {
+  clientId: number;
+  displayName: string;
+  avatarThumbnail?: string;
+  instruments: Instrument[];
+  isHost: boolean;
+}
+
+// ============================================================================
 // Custom Instrument Domain
 // ============================================================================
 

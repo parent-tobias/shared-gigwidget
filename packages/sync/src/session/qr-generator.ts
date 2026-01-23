@@ -5,7 +5,7 @@
  * Users scan the QR code to join a sharing session.
  */
 
-import type { QRSessionPayload } from '@gigwidget/core';
+import type { QRSessionPayload, BootstrapSessionPayload } from '@gigwidget/core';
 
 // We'll use the 'qrcode' package for generation
 // This is a lightweight abstraction layer
@@ -32,13 +32,22 @@ const DEFAULT_OPTIONS: Required<QRCodeOptions> = {
 };
 
 /**
+ * Check if a payload is a bootstrap-enabled payload
+ */
+export function isBootstrapPayload(
+  payload: QRSessionPayload | BootstrapSessionPayload
+): payload is BootstrapSessionPayload {
+  return 'bootstrapVersion' in payload;
+}
+
+/**
  * Encode session payload for QR code
  *
  * Uses a compact JSON format to minimize QR code size.
  */
-export function encodeSessionPayload(payload: QRSessionPayload): string {
+export function encodeSessionPayload(payload: QRSessionPayload | BootstrapSessionPayload): string {
   // Create compact version to reduce QR code size
-  const compact = {
+  const compact: Record<string, unknown> = {
     s: payload.sessionId,
     t: payload.type,
     h: payload.hostId,
@@ -54,6 +63,14 @@ export function encodeSessionPayload(payload: QRSessionPayload): string {
     ex: payload.expiresAt,
   };
 
+  // Add bootstrap info if present
+  if (isBootstrapPayload(payload)) {
+    compact.bv = payload.bootstrapVersion;
+    compact.bh = payload.bundleHash;
+    compact.bs = payload.bundleSize;
+    compact.ss = payload.songDataSize;
+  }
+
   // Base64 encode for URL-safe transport
   return btoa(JSON.stringify(compact));
 }
@@ -61,10 +78,10 @@ export function encodeSessionPayload(payload: QRSessionPayload): string {
 /**
  * Decode session payload from QR code data
  */
-export function decodeSessionPayload(encoded: string): QRSessionPayload {
+export function decodeSessionPayload(encoded: string): QRSessionPayload | BootstrapSessionPayload {
   const compact = JSON.parse(atob(encoded));
 
-  return {
+  const base: QRSessionPayload = {
     sessionId: compact.s,
     type: compact.t,
     hostId: compact.h,
@@ -79,6 +96,19 @@ export function decodeSessionPayload(encoded: string): QRSessionPayload {
     createdAt: compact.ts,
     expiresAt: compact.ex,
   };
+
+  // Return bootstrap payload if bootstrap info is present
+  if (compact.bv !== undefined) {
+    return {
+      ...base,
+      bootstrapVersion: compact.bv,
+      bundleHash: compact.bh,
+      bundleSize: compact.bs,
+      songDataSize: compact.ss,
+    } satisfies BootstrapSessionPayload;
+  }
+
+  return base;
 }
 
 function encodeConnectionInfo(info: QRSessionPayload['connectionInfo']): unknown {
@@ -122,12 +152,23 @@ function decodeConnectionInfo(type: string, compact: unknown): QRSessionPayload[
 }
 
 /**
+ * Generate a URL for the bootstrap join page
+ */
+export function generateBootstrapUrl(
+  payload: BootstrapSessionPayload,
+  baseUrl: string = 'https://gigwidget.app'
+): string {
+  const encoded = encodeSessionPayload(payload);
+  return `${baseUrl}/join#${encoded}`;
+}
+
+/**
  * Generate QR code as data URL
  *
  * Requires 'qrcode' package to be installed.
  */
 export async function generateQRCodeDataURL(
-  payload: QRSessionPayload,
+  payload: QRSessionPayload | BootstrapSessionPayload,
   options: QRCodeOptions = {}
 ): Promise<string> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -151,7 +192,7 @@ export async function generateQRCodeDataURL(
  * Generate QR code as SVG string
  */
 export async function generateQRCodeSVG(
-  payload: QRSessionPayload,
+  payload: QRSessionPayload | BootstrapSessionPayload,
   options: QRCodeOptions = {}
 ): Promise<string> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -176,7 +217,7 @@ export async function generateQRCodeSVG(
  */
 export async function generateQRCodeToCanvas(
   canvas: HTMLCanvasElement,
-  payload: QRSessionPayload,
+  payload: QRSessionPayload | BootstrapSessionPayload,
   options: QRCodeOptions = {}
 ): Promise<void> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -200,7 +241,7 @@ export async function generateQRCodeToCanvas(
  *
  * Useful for warning users if manifest is too large.
  */
-export function estimateQRCodeSize(payload: QRSessionPayload): {
+export function estimateQRCodeSize(payload: QRSessionPayload | BootstrapSessionPayload): {
   bytes: number;
   tooLarge: boolean;
 } {

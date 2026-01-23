@@ -13,7 +13,24 @@
         <span class="pill-text">
           {session.isHosting ? 'Hosting' : 'Session'}
         </span>
-        <span class="peer-badge">{session.peerCount}</span>
+        {#if session.participants.length > 0}
+          <div class="participant-avatars">
+            {#each session.participants.slice(0, 3) as p (p.clientId)}
+              <div class="mini-avatar">
+                {#if p.avatarThumbnail}
+                  <img src={p.avatarThumbnail} alt="" />
+                {:else}
+                  <span>{p.displayName.charAt(0)}</span>
+                {/if}
+              </div>
+            {/each}
+            {#if session.participants.length > 3}
+              <div class="mini-avatar more">+{session.participants.length - 3}</div>
+            {/if}
+          </div>
+        {:else}
+          <span class="peer-badge">{session.peerCount}</span>
+        {/if}
       </button>
     {:else}
       <!-- Expanded state: full panel -->
@@ -41,6 +58,39 @@
           <div class="qr-section">
             <img src={session.qrDataUrl} alt="Session QR Code" class="qr-code" />
             <p class="qr-hint">Scan to join</p>
+          </div>
+        {/if}
+
+        {#if session.participants.length > 0}
+          <div class="participants-section">
+            <span class="section-label">Participants</span>
+            <div class="participants-list">
+              {#each session.participants as participant (participant.clientId)}
+                <div class="participant" class:is-host={participant.isHost}>
+                  <div class="participant-avatar">
+                    {#if participant.avatarThumbnail}
+                      <img src={participant.avatarThumbnail} alt="" />
+                    {:else}
+                      <span class="avatar-initial">{participant.displayName.charAt(0)}</span>
+                    {/if}
+                  </div>
+                  <div class="participant-info">
+                    <span class="participant-name">
+                      {participant.displayName}
+                      {#if participant.isHost}
+                        <span class="host-badge">Host</span>
+                      {/if}
+                    </span>
+                    {#if participant.instruments.length > 0}
+                      <span class="participant-instruments">
+                        {participant.instruments.slice(0, 2).join(', ')}
+                        {#if participant.instruments.length > 2}+{participant.instruments.length - 2}{/if}
+                      </span>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
           </div>
         {/if}
 
@@ -104,6 +154,41 @@
     border-radius: 9999px;
     min-width: 20px;
     text-align: center;
+  }
+
+  .participant-avatars {
+    display: flex;
+    margin-left: var(--spacing-xs);
+  }
+
+  .mini-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: var(--color-bg-secondary);
+    margin-left: -6px;
+    border: 2px solid var(--color-surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    overflow: hidden;
+  }
+
+  .mini-avatar:first-child {
+    margin-left: 0;
+  }
+
+  .mini-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .mini-avatar.more {
+    background-color: var(--color-primary);
+    color: white;
+    font-weight: 600;
   }
 
   /* Expanded panel */
@@ -191,6 +276,95 @@
   .qr-hint {
     margin-top: var(--spacing-xs);
     font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  /* Participants section */
+  .participants-section {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .section-label {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .participants-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    margin-top: var(--spacing-xs);
+    max-height: 150px;
+    overflow-y: auto;
+  }
+
+  .participant {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-xs);
+    border-radius: var(--radius-sm);
+  }
+
+  .participant.is-host {
+    background-color: var(--color-surface);
+  }
+
+  .participant-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    overflow: hidden;
+    background-color: var(--color-bg-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .participant-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .avatar-initial {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+  }
+
+  .participant-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .participant-name {
+    font-size: 0.8rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+  }
+
+  .host-badge {
+    background-color: var(--color-primary);
+    color: white;
+    font-size: 0.6rem;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  .participant-instruments {
+    font-size: 0.7rem;
     color: var(--color-text-muted);
   }
 

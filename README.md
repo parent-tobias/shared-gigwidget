@@ -8,6 +8,7 @@ A local-first TAB music sharing app for musicians.
 - **Multi-Instrument**: Guitar, bass, ukulele, drums, and more
 - **ChordPro Format**: Industry-standard chord chart notation
 - **P2P Sharing**: Share instantly via QR code at jam sessions
+- **P2P Bootstrap**: New users can scan a QR code to receive the app AND songs directly from the host device
 - **Cloud Sync**: Optional Supabase backup when online
 - **Cross-Platform**: Web, iOS, Android, macOS, Windows, Linux
 
@@ -43,6 +44,8 @@ gigwidget/
 - [Architecture](docs/03-architecture.md)
 - [Data Models](docs/04-data-models.md)
 - [Development Guide](docs/05-development-guide.md)
+- [P2P Bootstrap System](docs/06-p2p-bootstrap-system.md)
+- [Bootstrap Quick Start](docs/07-bootstrap-quick-start.md)
 
 ## Tech Stack
 

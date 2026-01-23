@@ -5,7 +5,7 @@
  * Uses Svelte 5 runes with a singleton pattern for global access.
  */
 
-import type { User, Song, QRSessionPayload, SongManifestEntry } from '@gigwidget/core';
+import type { User, Song, QRSessionPayload, BootstrapSessionPayload, SongManifestEntry, SessionParticipantInfo } from '@gigwidget/core';
 
 export type SessionStatus = 'disconnected' | 'connecting' | 'connected';
 
@@ -18,6 +18,8 @@ export interface SessionState {
   status: SessionStatus;
   /** Number of connected peers */
   peerCount: number;
+  /** List of connected participants */
+  participants: SessionParticipantInfo[];
   /** QR payload for the session (host only) */
   qrPayload: QRSessionPayload | null;
   /** QR code data URL (host only) */
@@ -33,6 +35,7 @@ let isActive = $state(false);
 let isHosting = $state(false);
 let status = $state<SessionStatus>('disconnected');
 let peerCount = $state(0);
+let participants = $state<SessionParticipantInfo[]>([]);
 let qrPayload = $state<QRSessionPayload | null>(null);
 let qrDataUrl = $state<string | null>(null);
 let isMinimized = $state(false);
@@ -41,6 +44,7 @@ let error = $state<string | null>(null);
 // Internal references
 let sessionManager: any = null;
 let currentUser: User | null = null;
+let bootstrapContext: BootstrapContext | null = null;
 
 /**
  * Initialize the session manager with the current user
@@ -79,12 +83,17 @@ async function initSessionManager(user: User): Promise<void> {
       isHosting = false;
       status = 'disconnected';
       peerCount = 0;
+      participants = [];
       qrPayload = null;
       qrDataUrl = null;
     });
 
     sessionManager.on('peers-changed', ({ count }: any) => {
       peerCount = count;
+    });
+
+    sessionManager.on('participants-changed', ({ participants: newParticipants }: any) => {
+      participants = newParticipants;
     });
 
     sessionManager.on('sync-status', ({ synced }: any) => {
@@ -138,8 +147,7 @@ async function startSession(
       id: s.id,
       title: s.title,
       artist: s.artist,
-      key: s.key,
-      updatedAt: s.updatedAt.getTime(),
+      instruments: [], // TODO: Extract from song arrangements
     }));
 
     await sessionManager.createSession(manifest, {
@@ -184,6 +192,60 @@ async function leaveSession(): Promise<void> {
   if (sessionManager) {
     await sessionManager.leaveSession();
   }
+  bootstrapContext = null;
+}
+
+/**
+ * Join a session using an existing WebRTC connection from bootstrap.
+ * Used when the app was loaded via P2P bootstrap.
+ */
+async function joinWithBootstrapContext(
+  user: User,
+  context: BootstrapContext
+): Promise<{ songData: ArrayBuffer | undefined }> {
+  await initSessionManager(user);
+  if (!sessionManager) {
+    error = 'Session manager not ready';
+    throw new Error(error);
+  }
+
+  if (!context.payload) {
+    error = 'No session payload in bootstrap context';
+    throw new Error(error);
+  }
+
+  bootstrapContext = context;
+  error = null;
+  status = 'connecting';
+
+  try {
+    // Join the session normally - the WebRTC connection from bootstrap
+    // will be handled by the session manager
+    await sessionManager.joinSession({ payload: context.payload });
+
+    // Return song data for the app to apply
+    return { songData: context.songData };
+  } catch (err) {
+    console.error('Failed to join via bootstrap:', err);
+    error = err instanceof Error ? err.message : 'Failed to join session';
+    status = 'disconnected';
+    throw err;
+  }
+}
+
+/**
+ * Check if we have a bootstrap context available
+ */
+function hasBootstrapContext(): boolean {
+  return typeof window !== 'undefined' && !!window.__GIGWIDGET_BOOTSTRAP_CONTEXT__?.bootstrapComplete;
+}
+
+/**
+ * Get the bootstrap context if available
+ */
+function getBootstrapContext(): BootstrapContext | null {
+  if (typeof window === 'undefined') return null;
+  return window.__GIGWIDGET_BOOTSTRAP_CONTEXT__ ?? null;
 }
 
 /**
@@ -217,6 +279,7 @@ export function getSessionStore() {
     get isHosting() { return isHosting; },
     get status() { return status; },
     get peerCount() { return peerCount; },
+    get participants() { return participants; },
     get qrPayload() { return qrPayload; },
     get qrDataUrl() { return qrDataUrl; },
     get isMinimized() { return isMinimized; },
@@ -229,5 +292,10 @@ export function getSessionStore() {
     toggleMinimized,
     expand,
     minimize,
+
+    // Bootstrap support
+    joinWithBootstrapContext,
+    hasBootstrapContext,
+    getBootstrapContext,
   };
 }

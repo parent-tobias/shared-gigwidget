@@ -11,5 +11,7 @@ export {
   generateQRCodeSVG,
   generateQRCodeToCanvas,
   estimateQRCodeSize,
+  generateBootstrapUrl,
+  isBootstrapPayload,
   type QRCodeOptions,
 } from './qr-generator.js';

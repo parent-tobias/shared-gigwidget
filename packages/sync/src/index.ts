@@ -9,6 +9,7 @@
  * - Bluetooth peer-to-peer sync for offline scenarios
  * - Session management for ad-hoc sharing sessions
  * - QR code generation for easy session joining
+ * - P2P bootstrap system for app + data transfer
  */
 
 // Providers
@@ -16,3 +17,6 @@ export * from './providers/index.js';
 
 // Session management
 export * from './session/index.js';
+
+// Bootstrap system
+export * from './bootstrap/index.js';
