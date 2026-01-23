@@ -57,12 +57,35 @@ async function initSessionManager(user: User): Promise<void> {
   try {
     const { SessionManager } = await import('@gigwidget/sync');
 
+    // Determine signaling servers based on environment
+    let signalingServers: string[] = [];
+    
+    // Development: use local signaling server
+    if (typeof window !== 'undefined') {
+      const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      
+      if (isDev) {
+        // Local development: connect to local y-websocket-server
+        signalingServers = [
+          `wss://${window.location.hostname}:4444`,
+          `ws://${window.location.hostname}:4444`, // Fallback to ws for local dev
+          'wss://signaling.yjs.dev', // Fallback to public
+        ];
+      } else {
+        // Production: use deployed signaling server or public servers
+        signalingServers = [
+          'wss://gigwidget-signalling-server-production.up.railway.app',
+          'wss://signaling.yjs.dev', // Fallback to public
+        ];
+      }
+    }
+
     // Cleanup existing
     if (sessionManager) {
       sessionManager.destroy();
     }
 
-    sessionManager = new SessionManager({ user });
+    sessionManager = new SessionManager({ user, signalingServers });
 
     sessionManager.on('session-created', async ({ session, qrPayload: payload }: any) => {
       isActive = true;
@@ -90,10 +113,13 @@ async function initSessionManager(user: User): Promise<void> {
 
     sessionManager.on('peers-changed', ({ count }: any) => {
       peerCount = count;
+      console.log('Peers changed:', count);
     });
 
     sessionManager.on('participants-changed', ({ participants: newParticipants }: any) => {
       participants = newParticipants;
+      peerCount = newParticipants.length + 1; // Include self
+      console.log('Participants changed:', newParticipants);
     });
 
     sessionManager.on('sync-status', ({ synced }: any) => {

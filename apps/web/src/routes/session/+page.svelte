@@ -190,6 +190,37 @@
         </div>
       {/if}
 
+      {#if session.participants.length > 0}
+        <div class="participants-section">
+          <h3>Connected Participants ({session.participants.length + 1})</h3>
+          <ul class="participants-list">
+            <li class="participant-item host">
+              <span class="participant-avatar">🎵</span>
+              <span class="participant-name">{session.isHosting ? 'You (Host)' : user?.displayName + ' (Host)'}</span>
+            </li>
+            {#each session.participants as participant (participant.clientId)}
+              {#if !participant.isHost}
+                <li class="participant-item">
+                  {#if participant.avatarThumbnail}
+                    <img src={participant.avatarThumbnail} alt="Avatar" class="participant-avatar" />
+                  {:else}
+                    <span class="participant-avatar">👤</span>
+                  {/if}
+                  <div class="participant-info">
+                    <span class="participant-name">{participant.displayName}</span>
+                    {#if participant.instruments.length > 0}
+                      <span class="participant-instruments">
+                        {participant.instruments.join(', ')}
+                      </span>
+                    {/if}
+                  </div>
+                </li>
+              {/if}
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
       <div class="session-actions">
         <p class="session-note">The session overlay will stay visible as you navigate the app.</p>
         <button class="btn btn-danger" onclick={() => session.leaveSession()}>
@@ -613,5 +644,71 @@
     justify-content: flex-end;
     gap: var(--spacing-sm);
     margin-top: var(--spacing-lg);
+  }
+
+  .participants-section {
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-md);
+  }
+
+  .participants-section h3 {
+    margin: 0 0 var(--spacing-md);
+    font-size: 1rem;
+  }
+
+  .participants-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .participant-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm);
+    background-color: var(--color-bg);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--color-secondary);
+  }
+
+  .participant-item.host {
+    border-left-color: var(--color-primary);
+  }
+
+  .participant-avatar {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    border-radius: 50%;
+    background-color: var(--color-surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    overflow: hidden;
+    object-fit: cover;
+  }
+
+  .participant-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .participant-name {
+    font-weight: 500;
+    color: var(--color-text);
+  }
+
+  .participant-instruments {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
   }
 </style>

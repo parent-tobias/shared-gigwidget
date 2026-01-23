@@ -28,7 +28,7 @@ import { BluetoothProvider, isBluetoothAvailable } from '../providers/index.js';
 import { Observable } from '../providers/observable.js';
 import { BootstrapHost, BOOTSTRAP_CHANNEL_LABEL } from '../bootstrap/index.js';
 
-// Default WebRTC signaling servers
+// Default WebRTC signaling servers - using more reliable options
 const DEFAULT_SIGNALING_SERVERS = [
   'wss://signaling.yjs.dev',
   'wss://y-webrtc-signaling-eu.herokuapp.com',

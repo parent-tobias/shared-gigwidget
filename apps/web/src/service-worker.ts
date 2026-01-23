@@ -180,7 +180,8 @@ async function fetchAndCache(request: Request, cache: Cache): Promise<Response> 
   try {
     const response = await fetch(request);
 
-    if (response.ok) {
+    // Only cache GET and HEAD requests that are successful
+    if (response.ok && (request.method === 'GET' || request.method === 'HEAD')) {
       cache.put(request, response.clone());
     }
 
