@@ -4,7 +4,6 @@
   import { goto } from '$app/navigation';
   import type { Song, Arrangement, MusicalKey } from '@gigwidget/core';
   import { MUSICAL_KEYS } from '@gigwidget/core';
-  import SyncIndicator from '$lib/components/SyncIndicator.svelte';
 
   let song = $state<Song | null>(null);
   let arrangements = $state<Arrangement[]>([]);
@@ -17,6 +16,9 @@
   let hasLoaded = false;
   let editorReady = $state(false);
   let rendererReady = $state(false);
+  let chordListPosition = $state<'top' | 'right' | 'bottom'>('top');
+  let theme = $state<'light' | 'dark' | 'auto'>('auto');
+  let compactView = $state(false);
 
   // Transpose state
   let transposeSemitones = $state(0);
@@ -40,12 +42,30 @@
   let yjsTranspose: any = null; // Y.Map for transpose state (synced in sessions)
   let indexeddbProvider: any = null;
 
-  // Derived: transposed content for view mode
+  // Derived: transposed content for view mode (with metadata stripped)
   const displayContent = $derived.by(() => {
     if (!selectedArrangement) return '';
-    if (transposeSemitones === 0) return selectedArrangement.content;
-    return transposeContentLocal(selectedArrangement.content, transposeSemitones);
+    let content = selectedArrangement.content;
+    if (transposeSemitones !== 0) {
+      content = transposeContentLocal(content, transposeSemitones);
+    }
+    // Strip out metadata directives for clean display
+    return stripMetadataDirectives(content);
   });
+
+  // Strip metadata directives like {title:...}, {artist:...}, {key:...}, {c:...}, etc.
+  function stripMetadataDirectives(content: string): string {
+    // Remove metadata directives - matches {directive: value} on any line
+    return content
+      .split('\n')
+      .filter(line => {
+        const trimmed = line.trim();
+        // Skip lines that are metadata directives (both full and abbreviated forms)
+        // Matches: {t: }, {title: }, {a: }, {artist: }, {key: }, {c: }, {comment: }, {capo: }, etc.
+        return !trimmed.match(/^\{(t|title|a|artist|key|c|comment|tempo|capo|tuning|duration|composer|copyright|original|album|year|writer)\s*:/i);
+      })
+      .join('\n');
+  }
 
   // Local transpose function (will be loaded async)
   let transposeContentLocal = (content: string, semitones: number) => content;
@@ -58,6 +78,7 @@
     hasLoaded = true;
 
     loadSong();
+    loadPreferences();
     loadLitComponents();
     initYjs();
   });
@@ -174,6 +195,45 @@
       error = err instanceof Error ? err.message : 'Failed to load song';
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadPreferences() {
+    try {
+      const { getDatabase } = await import('@gigwidget/db');
+      const db = getDatabase();
+      const users = await db.users.toArray();
+      if (users.length > 0) {
+        const prefs = await db.userPreferences.where('userId').equals(users[0].id).first();
+        if (prefs) {
+          if (prefs.chordListPosition) chordListPosition = prefs.chordListPosition;
+          if (prefs.theme) theme = prefs.theme;
+          if (prefs.compactView) compactView = prefs.compactView;
+          
+          // Apply theme to document
+          applyTheme(prefs.theme || 'auto');
+          
+          // Apply compact view class to document
+          if (prefs.compactView) {
+            document.documentElement.classList.add('compact-view');
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load preferences:', err);
+    }
+  }
+
+  function applyTheme(themeValue: 'light' | 'dark' | 'auto') {
+    const root = document.documentElement;
+    if (themeValue === 'auto') {
+      root.classList.remove('light-theme', 'dark-theme');
+    } else if (themeValue === 'light') {
+      root.classList.remove('dark-theme');
+      root.classList.add('light-theme');
+    } else if (themeValue === 'dark') {
+      root.classList.remove('light-theme');
+      root.classList.add('dark-theme');
     }
   }
 
@@ -350,7 +410,7 @@
         {/if}
       </div>
       <div class="header-actions">
-        <button class="btn btn-secondary" onclick={openInfoModal}>Info</button>
+        <button class="btn btn-secondary btn-sm" onclick={openInfoModal}>ℹ️</button>
         <button class="btn btn-secondary" onclick={toggleEditMode}>
           {editMode ? 'View' : 'Edit'}
         </button>
@@ -359,23 +419,9 @@
     </header>
 
     <div class="song-meta">
-      <SyncIndicator status={syncStatus} peerCount={peerCount} />
-      {#if song.key}
-        <span class="meta-item">Key: {song.key}</span>
-      {/if}
-      {#if song.tempo}
-        <span class="meta-item">{song.tempo} BPM</span>
-      {/if}
-      {#if song.tags.length > 0}
-        <div class="tags">
-          {#each song.tags as tag}
-            <span class="tag">{tag}</span>
-          {/each}
-        </div>
-      {/if}
     </div>
 
-    {#if !editMode}
+    {#if !editMode && (arrangements.length > 1 || transposeSemitones !== 0)}
       <div class="transpose-controls">
         <div class="transpose-buttons">
           <button class="transpose-btn" onclick={() => transposeBy(-1)} title="Transpose down">
@@ -446,10 +492,35 @@
         {/if}
       {:else}
         {#if rendererReady && selectedArrangement}
+          <div class="renderer-toolbar">
+            <div class="transpose-buttons">
+              <button class="transpose-btn" onclick={() => transposeBy(-1)} title="Transpose down">
+                -1
+              </button>
+              <button
+                class="transpose-display"
+                onclick={() => (showTransposeModal = true)}
+                title="Click to transpose to key"
+              >
+                {#if transposeSemitones === 0}
+                  Original
+                {:else}
+                  {transposeSemitones > 0 ? '+' : ''}{transposeSemitones}
+                {/if}
+              </button>
+              <button class="transpose-btn" onclick={() => transposeBy(1)} title="Transpose up">
+                +1
+              </button>
+              {#if transposeSemitones !== 0}
+                <button class="reset-btn" onclick={resetTranspose}>Reset</button>
+              {/if}
+            </div>
+          </div>
           <div class="renderer-wrapper">
             <chordpro-renderer
               content={displayContent}
               theme="chordpro-dark"
+              chord-position={chordListPosition}
             ></chordpro-renderer>
           </div>
         {:else if !selectedArrangement}
@@ -529,63 +600,69 @@
       <h2>Song Info</h2>
 
       <form class="info-form" onsubmit={(e) => { e.preventDefault(); saveInfo(); }}>
-        <div class="form-group">
-          <label for="edit-title">Title *</label>
-          <input
-            type="text"
-            id="edit-title"
-            bind:value={editTitle}
-            placeholder="Enter song title"
-            required
-            disabled={savingInfo}
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="edit-artist">Artist</label>
-          <input
-            type="text"
-            id="edit-artist"
-            bind:value={editArtist}
-            placeholder="Enter artist name"
-            disabled={savingInfo}
-          />
-        </div>
-
-        <div class="form-row">
+        <div class="form-section">
+          <h3>Basic Info</h3>
           <div class="form-group">
-            <label for="edit-key">Key</label>
-            <select id="edit-key" bind:value={editKey} disabled={savingInfo}>
-              <option value="">Select key</option>
-              {#each MUSICAL_KEYS as k}
-                <option value={k}>{k}</option>
-              {/each}
-            </select>
+            <label for="edit-title">Title *</label>
+            <input
+              type="text"
+              id="edit-title"
+              bind:value={editTitle}
+              placeholder="Enter song title"
+              required
+              disabled={savingInfo}
+            />
           </div>
 
           <div class="form-group">
-            <label for="edit-tempo">Tempo (BPM)</label>
+            <label for="edit-artist">Artist</label>
             <input
-              type="number"
-              id="edit-tempo"
-              bind:value={editTempo}
-              placeholder="120"
-              min="20"
-              max="300"
+              type="text"
+              id="edit-artist"
+              bind:value={editArtist}
+              placeholder="Enter artist name"
               disabled={savingInfo}
             />
           </div>
         </div>
 
-        <div class="form-group">
-          <label for="edit-tags">Tags</label>
-          <input
-            type="text"
-            id="edit-tags"
-            bind:value={editTags}
-            placeholder="rock, classic, favorite (comma-separated)"
-            disabled={savingInfo}
-          />
+        <div class="form-section">
+          <h3>Details</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="edit-key">Key</label>
+              <select id="edit-key" bind:value={editKey} disabled={savingInfo}>
+                <option value="">Select key</option>
+                {#each MUSICAL_KEYS as k}
+                  <option value={k}>{k}</option>
+                {/each}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="edit-tempo">Tempo (BPM)</label>
+              <input
+                type="number"
+                id="edit-tempo"
+                bind:value={editTempo}
+                placeholder="120"
+                min="20"
+                max="300"
+                disabled={savingInfo}
+              />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="edit-tags">Tags</label>
+            <input
+              type="text"
+              id="edit-tags"
+              bind:value={editTags}
+              placeholder="rock, classic, favorite (comma-separated)"
+              disabled={savingInfo}
+            />
+          </div>
         </div>
 
         <div class="modal-actions">
@@ -647,30 +724,13 @@
   }
 
   .song-meta {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    padding: var(--spacing-md) 0;
-    flex-wrap: wrap;
+    display: none;
   }
 
-  .meta-item {
-    background-color: var(--color-surface);
-    padding: var(--spacing-xs) var(--spacing-sm);
-    border-radius: var(--radius-sm);
+  .btn-sm {
+    padding: var(--spacing-xs) var(--spacing-xs);
     font-size: 0.875rem;
-  }
-
-  .tags {
-    display: flex;
-    gap: var(--spacing-xs);
-  }
-
-  .tag {
-    background-color: var(--color-secondary);
-    padding: var(--spacing-xs) var(--spacing-sm);
-    border-radius: var(--radius-sm);
-    font-size: 0.75rem;
+    min-width: auto;
   }
 
   .arrangement-tabs {
@@ -709,6 +769,20 @@
     border-radius: var(--radius-lg);
     padding: var(--spacing-md);
     min-height: 300px;
+  }
+
+  .renderer-toolbar {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-md) var(--spacing-md) 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background-color: var(--color-bg-secondary);
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: -1px;
+  }
+
+  .renderer-toolbar .transpose-buttons {
+    margin: 0;
   }
 
   .editor-actions {
@@ -752,6 +826,7 @@
     display: block;
     width: 100%;
     min-height: 300px;
+    line-height: 1.4;
   }
 
   /* Transpose controls */
@@ -808,6 +883,7 @@
     color: var(--color-text-muted);
     font-size: 0.75rem;
     cursor: pointer;
+    margin-left: auto;
   }
 
   .reset-btn:hover {
@@ -926,7 +1002,22 @@
   .info-form {
     display: flex;
     flex-direction: column;
+    gap: var(--spacing-lg);
+  }
+
+  .form-section {
+    display: flex;
+    flex-direction: column;
     gap: var(--spacing-md);
+  }
+
+  .form-section h3 {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   .form-group {
@@ -937,8 +1028,10 @@
 
   .form-group label {
     font-weight: 500;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   .form-row {
@@ -977,22 +1070,414 @@
     padding-right: 2.5rem;
   }
 
-  @media (max-width: 600px) {
+  @media (max-width: 1024px) {
     .page-header {
       flex-direction: column;
+      align-items: flex-start;
       gap: var(--spacing-md);
     }
 
     .header-actions {
       width: 100%;
+      flex-wrap: wrap;
     }
 
-    .header-actions .btn {
-      flex: 1;
+    .arrangement-tabs {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
 
     .form-row {
       grid-template-columns: 1fr;
+    }
+
+    .modal {
+      max-width: 90vw;
+      max-height: 80vh;
+    }
+
+    .semitone-grid,
+    .key-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .container {
+      padding: var(--spacing-md);
+    }
+
+    .page-header {
+      flex-direction: column;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-md) 0;
+    }
+
+    .header-left {
+      gap: var(--spacing-xs);
+      width: 100%;
+    }
+
+    .header-left h1 {
+      font-size: 1.5rem;
+      margin: 0;
+    }
+
+    .song-artist {
+      font-size: 0.875rem;
+    }
+
+    .header-actions {
+      width: 100%;
+      gap: var(--spacing-sm);
+    }
+
+    .header-actions .btn {
+      flex: 1;
+      padding: var(--spacing-sm) var(--spacing-md);
+      font-size: 0.875rem;
+    }
+
+    .btn-sm {
+      flex: 0 1 auto;
+      min-width: 40px;
+      padding: var(--spacing-sm);
+    }
+
+    .arrangement-tabs {
+      gap: 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0 -var(--spacing-md);
+      padding: 0 var(--spacing-md);
+    }
+
+    .arrangement-tab {
+      flex-shrink: 0;
+      padding: var(--spacing-sm);
+      font-size: 0.875rem;
+    }
+
+    .renderer-toolbar {
+      padding: var(--spacing-sm) var(--spacing-sm) 0;
+      flex-wrap: wrap;
+    }
+
+    .transpose-buttons {
+      width: 100%;
+    }
+
+    .transpose-btn {
+      padding: var(--spacing-sm);
+      font-size: 0.875rem;
+    }
+
+    .transpose-display {
+      min-width: 60px;
+      padding: var(--spacing-sm);
+      font-size: 0.875rem;
+    }
+
+    .reset-btn {
+      width: 100%;
+      margin-left: 0;
+      margin-top: var(--spacing-sm);
+      padding: var(--spacing-sm);
+    }
+
+    .editor-wrapper,
+    .renderer-wrapper {
+      padding: var(--spacing-sm);
+      min-height: 200px;
+    }
+
+    chordpro-editor,
+    chordpro-renderer {
+      min-height: 200px;
+    }
+
+    .modal {
+      max-width: 95vw;
+      max-height: 90vh;
+      padding: var(--spacing-md);
+      border-radius: var(--radius-lg);
+    }
+
+    .modal h2 {
+      font-size: 1.25rem;
+      margin: 0 0 var(--spacing-md);
+    }
+
+    .transpose-options {
+      gap: var(--spacing-md);
+    }
+
+    .semitone-grid,
+    .key-grid {
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--spacing-xs);
+    }
+
+    .semitone-btn,
+    .key-btn {
+      padding: var(--spacing-xs);
+      font-size: 0.75rem;
+    }
+
+    .modal-actions {
+      flex-direction: column;
+      gap: var(--spacing-sm);
+    }
+
+    .modal-actions .btn {
+      width: 100%;
+    }
+
+    .info-form {
+      gap: var(--spacing-md);
+    }
+
+    .form-row {
+      grid-template-columns: 1fr;
+    }
+
+    .form-section {
+      gap: var(--spacing-sm);
+    }
+
+    .form-section h3 {
+      font-size: 0.75rem;
+    }
+
+    .form-group label {
+      font-size: 0.7rem;
+    }
+
+    .info-form input,
+    .info-form select {
+      padding: var(--spacing-xs) var(--spacing-sm);
+      font-size: 1rem;
+    }
+
+    .editor-actions {
+      flex-direction: column-reverse;
+      gap: var(--spacing-sm);
+    }
+
+    .save-status {
+      text-align: center;
+      font-size: 0.75rem;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .container {
+      padding: var(--spacing-sm);
+    }
+
+    .page-header {
+      gap: 0;
+      padding: var(--spacing-sm) 0;
+    }
+
+    .header-left h1 {
+      font-size: 1.25rem;
+    }
+
+    .header-left {
+      gap: 0;
+    }
+
+    .back-link {
+      font-size: 0.75rem;
+    }
+
+    .song-artist {
+      font-size: 0.75rem;
+    }
+
+    .header-actions {
+      width: 100%;
+      gap: 0;
+    }
+
+    .header-actions .btn {
+      flex: 1;
+      padding: var(--spacing-xs);
+      font-size: 0.75rem;
+      border-radius: 0;
+    }
+
+    .header-actions .btn:not(:last-child) {
+      border-right: 1px solid var(--color-border);
+    }
+
+    .btn-sm {
+      padding: var(--spacing-xs) var(--spacing-xs);
+      font-size: 0.875rem;
+    }
+
+    .arrangement-tabs {
+      margin: var(--spacing-sm) -var(--spacing-sm) 0;
+      padding: 0 var(--spacing-sm);
+      gap: 0;
+    }
+
+    .arrangement-tab {
+      padding: var(--spacing-xs);
+      font-size: 0.75rem;
+      flex: 1;
+      text-align: center;
+      border-radius: 0;
+    }
+
+    .editor-container {
+      padding: 0;
+      min-height: 300px;
+    }
+
+    .renderer-toolbar {
+      padding: var(--spacing-xs) 0;
+      border-radius: 0;
+      gap: var(--spacing-xs);
+      flex-direction: column;
+    }
+
+    .transpose-buttons {
+      width: 100%;
+      border-radius: 0;
+      gap: 0;
+    }
+
+    .transpose-btn {
+      flex: 1;
+      padding: var(--spacing-xs);
+      font-size: 0.75rem;
+    }
+
+    .transpose-display {
+      flex: 1;
+      min-width: auto;
+      padding: var(--spacing-xs);
+      font-size: 0.75rem;
+    }
+
+    .reset-btn {
+      width: 100%;
+      margin: 0;
+      padding: var(--spacing-xs);
+      font-size: 0.7rem;
+    }
+
+    .editor-wrapper,
+    .renderer-wrapper {
+      padding: var(--spacing-xs);
+      min-height: 150px;
+      border-radius: 0;
+    }
+
+    chordpro-editor,
+    chordpro-renderer {
+      min-height: 150px;
+      font-size: 0.875rem;
+    }
+
+    .modal-overlay {
+      padding: 0;
+    }
+
+    .modal {
+      max-width: 100vw;
+      max-height: 100vh;
+      padding: var(--spacing-sm);
+      border-radius: 0;
+      width: 100%;
+    }
+
+    .modal h2 {
+      font-size: 1.125rem;
+      margin: 0 0 var(--spacing-sm);
+    }
+
+    .transpose-options {
+      gap: var(--spacing-sm);
+    }
+
+    .transpose-section h4 {
+      font-size: 0.75rem;
+      margin: 0 0 var(--spacing-xs);
+    }
+
+    .semitone-grid,
+    .key-grid {
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+    }
+
+    .semitone-btn,
+    .key-btn {
+      padding: 4px;
+      font-size: 0.7rem;
+    }
+
+    .modal-actions {
+      flex-direction: column;
+      gap: var(--spacing-xs);
+    }
+
+    .modal-actions .btn {
+      width: 100%;
+      padding: var(--spacing-sm);
+      font-size: 0.875rem;
+    }
+
+    .info-form {
+      gap: var(--spacing-sm);
+    }
+
+    .form-section {
+      gap: var(--spacing-xs);
+    }
+
+    .form-section h3 {
+      font-size: 0.7rem;
+    }
+
+    .form-group label {
+      font-size: 0.65rem;
+    }
+
+    .info-form input,
+    .info-form select {
+      padding: 6px 8px;
+      font-size: 16px;
+      border-radius: var(--radius-sm);
+    }
+
+    .info-form select {
+      background-position: right 8px center;
+      padding-right: 28px;
+    }
+
+    .checkbox-label {
+      font-size: 0.75rem;
+      gap: var(--spacing-xs);
+    }
+
+    .editor-actions {
+      flex-direction: column-reverse;
+      gap: var(--spacing-xs);
+      padding: var(--spacing-xs) 0;
+    }
+
+    .save-status {
+      font-size: 0.7rem;
+      text-align: center;
+    }
+
+    .editor-actions .btn {
+      width: 100%;
+      padding: var(--spacing-sm);
     }
   }
 </style>

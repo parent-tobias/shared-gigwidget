@@ -77,6 +77,12 @@
     }
   }
 
+  function cleanChordContent(content: string): string {
+    // Remove spaces between chord brackets and the following word
+    // e.g., "[Gm] slow" becomes "[Gm]slow"
+    return content.replace(/\]\s+(?=[^\s\n\]])/g, ']');
+  }
+
   async function importSong() {
     if (!selectedSong || !user) return;
 
@@ -96,9 +102,10 @@
         tags: ['imported', 'ozbcoz'],
       });
 
-      // Create default arrangement with the content
+      // Create default arrangement with cleaned content
+      const cleanedContent = cleanChordContent(selectedSong.content);
       const arrangement = createArrangement(song.id, 'ukulele', {
-        content: selectedSong.content,
+        content: cleanedContent,
       });
 
       // Save to database
