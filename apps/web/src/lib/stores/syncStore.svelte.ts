@@ -129,11 +129,19 @@ async function performInitialSync(userId: string): Promise<void> {
       throw new Error('No local user found');
     }
 
-    // Sync profile from cloud
-    await syncProfileFromCloud(db, userId, localUser);
+    // Sync profile from cloud (non-blocking - don't fail entire sync if profile sync fails)
+    try {
+      await syncProfileFromCloud(db, userId, localUser);
+    } catch (err) {
+      console.error('[Sync] Profile sync failed (continuing):', err);
+    }
 
-    // Sync preferences from cloud
-    await syncPreferencesFromCloud(db, userId, localUser.id);
+    // Sync preferences from cloud (non-blocking)
+    try {
+      await syncPreferencesFromCloud(db, userId, localUser.id);
+    } catch (err) {
+      console.error('[Sync] Preferences sync failed (continuing):', err);
+    }
 
     // Load songs from Supabase
     console.log('[Sync] Loading songs from cloud...');
@@ -213,7 +221,13 @@ async function syncProfileFromCloud(
   supabaseUserId: string,
   localUser: { id: string; displayName: string; instruments: string[]; subscriptionTier: string }
 ): Promise<void> {
-  const { data: cloudProfile } = await getProfile(supabaseUserId);
+  console.log('[Sync] Starting profile sync...');
+  const { data: cloudProfile, error: profileError } = await getProfile(supabaseUserId);
+
+  if (profileError) {
+    console.error('[Sync] Failed to get cloud profile:', profileError);
+    throw profileError;
+  }
 
   if (cloudProfile) {
     // Cloud profile exists - update local
@@ -243,7 +257,13 @@ async function syncPreferencesFromCloud(
   supabaseUserId: string,
   localUserId: string
 ): Promise<void> {
-  const { data: cloudPrefs } = await getPreferences(supabaseUserId);
+  console.log('[Sync] Starting preferences sync...');
+  const { data: cloudPrefs, error: prefsError } = await getPreferences(supabaseUserId);
+
+  if (prefsError) {
+    console.error('[Sync] Failed to get cloud preferences:', prefsError);
+    throw prefsError;
+  }
   const localPrefs = await db.userPreferences.where('userId').equals(localUserId).first();
 
   if (cloudPrefs) {
