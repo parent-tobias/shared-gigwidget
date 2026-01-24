@@ -1,6 +1,6 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import type { User, SubscriptionTier, Instrument } from '@gigwidget/core';
+  import type { User, SubscriptionTier, Instrument, CustomInstrument } from '@gigwidget/core';
   import { TIER_INFO, getEffectiveTier, getUserPermissions, INSTRUMENTS } from '@gigwidget/core';
   import {
     initializeAuth,
@@ -12,9 +12,20 @@
   } from '$lib/stores/authStore.svelte';
   import { getSyncState, forceSync, isSyncing, syncProfileToCloud, syncPreferencesToCloud } from '$lib/stores/syncStore.svelte';
 
+  // Built-in instruments that the chordpro-renderer supports
+  const RENDERER_INSTRUMENTS = [
+    'Standard Guitar',
+    'Drop-D Guitar',
+    'Standard Ukulele',
+    'Baritone Ukulele',
+    '5ths tuned Ukulele',
+    'Standard Mandolin',
+  ] as const;
+
   let user = $state<User | null>(null);
   let loading = $state(true);
   let hasLoaded = false;
+  let customInstruments = $state<CustomInstrument[]>([]);
 
   // Auth state
   const auth = getAuthState();
@@ -38,6 +49,7 @@
   let profileSuccess = $state(false);
 
   // Preferences state
+  let defaultInstrument = $state<string>('');
   let chordListPosition = $state<'top' | 'right' | 'bottom'>('top');
   let theme = $state<'light' | 'dark' | 'auto'>('auto');
   let compactView = $state(false);
@@ -52,6 +64,7 @@
     initializeAuth();
     loadUser();
     loadPreferences();
+    loadCustomInstruments();
   });
 
   async function handleSendMagicLink() {
@@ -115,6 +128,7 @@
       if (users.length > 0) {
         const prefs = await db.userPreferences.where('userId').equals(users[0].id).first();
         if (prefs) {
+          if (prefs.defaultInstrument) defaultInstrument = prefs.defaultInstrument;
           if (prefs.chordListPosition) chordListPosition = prefs.chordListPosition;
           if (prefs.theme) theme = prefs.theme;
           if (prefs.compactView) compactView = prefs.compactView;
@@ -124,6 +138,19 @@
       console.error('Failed to load preferences:', err);
     } finally {
       preferencesLoading = false;
+    }
+  }
+
+  async function loadCustomInstruments() {
+    try {
+      const { CustomInstrumentRepository, getDatabase } = await import('@gigwidget/db');
+      const db = getDatabase();
+      const users = await db.users.toArray();
+      if (users.length > 0) {
+        customInstruments = await CustomInstrumentRepository.getByUser(users[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to load custom instruments:', err);
     }
   }
 
@@ -139,26 +166,27 @@
       const db = getDatabase();
 
       const prefs = await db.userPreferences.where('userId').equals(user.id).first();
+      const prefsData = {
+        defaultInstrument: defaultInstrument || undefined,
+        chordListPosition,
+        theme,
+        compactView,
+      };
       if (prefs) {
-        await db.userPreferences.update(prefs.id || user.id, {
-          chordListPosition,
-          theme,
-          compactView,
-        });
+        await (db.userPreferences.where('userId').equals(user.id).modify as any)(prefsData);
       } else {
-        await db.userPreferences.add({
+        await (db.userPreferences.add as any)({
           userId: user.id,
           autoSaveInterval: 5000,
           snapshotRetention: 10,
-          chordListPosition,
-          theme,
-          compactView,
+          ...prefsData,
         });
       }
 
       // Sync to cloud if authenticated
       if (isAuthenticated()) {
         const { error: syncError } = await syncPreferencesToCloud({
+          defaultInstrument: defaultInstrument || undefined,
           chordListPosition,
           theme,
           compactView,
@@ -460,6 +488,30 @@
         <div class="loading">Loading preferences...</div>
       {:else}
         <form class="preferences-form" onsubmit={(e) => { e.preventDefault(); savePreferences(); }}>
+          <div class="form-group">
+            <label for="defaultInstrument">Default Instrument</label>
+            <select
+              id="defaultInstrument"
+              bind:value={defaultInstrument}
+              disabled={preferencesSaving}
+            >
+              <option value="">None</option>
+              <optgroup label="Built-in Instruments">
+                {#each RENDERER_INSTRUMENTS as instrument}
+                  <option value={instrument}>{instrument}</option>
+                {/each}
+              </optgroup>
+              {#if customInstruments.length > 0}
+                <optgroup label="Custom Instruments">
+                  {#each customInstruments as instrument}
+                    <option value={instrument.id}>{instrument.name}</option>
+                  {/each}
+                </optgroup>
+              {/if}
+            </select>
+            <p class="form-help">Instrument for chord diagrams when viewing songs</p>
+          </div>
+
           <div class="form-group">
             <label for="chordListPosition">Chord List Position</label>
             <select

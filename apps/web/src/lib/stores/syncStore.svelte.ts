@@ -5,7 +5,7 @@
 
 import { browser } from '$app/environment';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import type { Song } from '@gigwidget/core';
+import type { Song, CustomInstrument } from '@gigwidget/core';
 import {
   supabase,
   saveSongToSupabase,
@@ -19,10 +19,14 @@ import {
   uploadAvatar,
   getPreferences,
   upsertPreferences,
+  getCustomInstruments,
+  upsertCustomInstrument,
+  deleteCustomInstrument as deleteCustomInstrumentFromSupabase,
   type SupabaseSong,
   type SongChangePayload,
   type SupabaseProfile,
   type SupabasePreferences,
+  type SupabaseCustomInstrument,
 } from './supabaseStore';
 import { getSupabaseUserId, isAuthenticated } from './authStore.svelte';
 
@@ -143,6 +147,13 @@ async function performInitialSync(userId: string): Promise<void> {
       console.error('[Sync] Preferences sync failed (continuing):', err);
     }
 
+    // Sync custom instruments (non-blocking)
+    try {
+      await syncCustomInstrumentsFromCloud(db, userId, localUser.id);
+    } catch (err) {
+      console.error('[Sync] Custom instruments sync failed (continuing):', err);
+    }
+
     // Load songs from Supabase
     console.log('[Sync] Loading songs from cloud...');
     const { data: cloudSongs, error: loadError } = await loadSongsFromSupabase(userId);
@@ -232,7 +243,7 @@ async function syncProfileFromCloud(
   if (cloudProfile) {
     // Cloud profile exists - update local
     console.log('[Sync] Syncing profile from cloud');
-    await db.users.update(localUser.id, {
+    await (db.users.update as any)(localUser.id, {
       displayName: cloudProfile.display_name,
       instruments: cloudProfile.instruments,
       subscriptionTier: cloudProfile.subscription_tier,
@@ -269,28 +280,28 @@ async function syncPreferencesFromCloud(
   if (cloudPrefs) {
     // Cloud prefs exist - update local
     console.log('[Sync] Syncing preferences from cloud');
+    const prefsData = {
+      defaultInstrument: cloudPrefs.default_instrument ?? undefined,
+      chordListPosition: cloudPrefs.chord_list_position,
+      theme: cloudPrefs.theme,
+      compactView: cloudPrefs.compact_view,
+      autoSaveInterval: cloudPrefs.auto_save_interval,
+      snapshotRetention: cloudPrefs.snapshot_retention,
+    } as const;
     if (localPrefs) {
-      await db.userPreferences.update(localPrefs.id || localUserId, {
-        chordListPosition: cloudPrefs.chord_list_position,
-        theme: cloudPrefs.theme,
-        compactView: cloudPrefs.compact_view,
-        autoSaveInterval: cloudPrefs.auto_save_interval,
-        snapshotRetention: cloudPrefs.snapshot_retention,
-      });
+      // Use type assertion as db package may not have updated types yet
+      await (db.userPreferences.where('userId').equals(localUserId).modify as any)(prefsData);
     } else {
-      await db.userPreferences.add({
+      await (db.userPreferences.add as any)({
         userId: localUserId,
-        chordListPosition: cloudPrefs.chord_list_position,
-        theme: cloudPrefs.theme,
-        compactView: cloudPrefs.compact_view,
-        autoSaveInterval: cloudPrefs.auto_save_interval,
-        snapshotRetention: cloudPrefs.snapshot_retention,
+        ...prefsData,
       });
     }
   } else if (localPrefs) {
     // No cloud prefs but local exists - push to cloud
     console.log('[Sync] Pushing local preferences to cloud');
     await upsertPreferences(supabaseUserId, {
+      default_instrument: localPrefs.defaultInstrument ?? null,
       chord_list_position: localPrefs.chordListPosition,
       theme: localPrefs.theme,
       compact_view: localPrefs.compactView,
@@ -298,6 +309,86 @@ async function syncPreferencesFromCloud(
       snapshot_retention: localPrefs.snapshotRetention,
     });
   }
+}
+
+/**
+ * Sync custom instruments from cloud to local.
+ * Uses merge strategy: both cloud and local instruments are kept.
+ */
+async function syncCustomInstrumentsFromCloud(
+  db: Awaited<ReturnType<typeof import('@gigwidget/db').getDatabase>>,
+  supabaseUserId: string,
+  localUserId: string
+): Promise<void> {
+  console.log('[Sync] Starting custom instruments sync...');
+
+  const { data: cloudInstruments, error } = await getCustomInstruments(supabaseUserId);
+  if (error) {
+    console.error('[Sync] Failed to get cloud custom instruments:', error);
+    throw error;
+  }
+
+  // Get local custom instruments
+  const { CustomInstrumentRepository } = await import('@gigwidget/db');
+  const localInstruments = await CustomInstrumentRepository.getByUser(localUserId);
+
+  // Create maps for comparison
+  const cloudMap = new Map<string, SupabaseCustomInstrument>();
+  cloudInstruments?.forEach(i => cloudMap.set(i.id, i));
+
+  const localMap = new Map<string, CustomInstrument>();
+  localInstruments.forEach(i => localMap.set(i.id, i));
+
+  // Pull cloud-only instruments to local
+  for (const cloudInstrument of cloudInstruments ?? []) {
+    if (!localMap.has(cloudInstrument.id)) {
+      console.log(`[Sync] Pulling cloud instrument: ${cloudInstrument.name}`);
+      await CustomInstrumentRepository.create({
+        id: cloudInstrument.id,
+        userId: localUserId,
+        name: cloudInstrument.name,
+        baseType: cloudInstrument.base_type as CustomInstrument['baseType'],
+        strings: cloudInstrument.strings,
+        frets: cloudInstrument.frets,
+        isPublic: cloudInstrument.is_public,
+        createdAt: new Date(cloudInstrument.created_at),
+        updatedAt: new Date(cloudInstrument.updated_at),
+      });
+    } else {
+      // Both exist - compare timestamps, cloud wins
+      const cloudUpdated = new Date(cloudInstrument.updated_at);
+      const localInstrument = localMap.get(cloudInstrument.id)!;
+      const localUpdated = new Date(localInstrument.updatedAt);
+
+      if (cloudUpdated > localUpdated) {
+        console.log(`[Sync] Cloud instrument newer, pulling: ${cloudInstrument.name}`);
+        await CustomInstrumentRepository.update(cloudInstrument.id, {
+          name: cloudInstrument.name,
+          baseType: cloudInstrument.base_type as CustomInstrument['baseType'],
+          strings: cloudInstrument.strings,
+          frets: cloudInstrument.frets,
+          isPublic: cloudInstrument.is_public,
+        });
+      }
+    }
+  }
+
+  // Push local-only instruments to cloud
+  for (const localInstrument of localInstruments) {
+    if (!cloudMap.has(localInstrument.id)) {
+      console.log(`[Sync] Pushing local instrument: ${localInstrument.name}`);
+      await upsertCustomInstrument(supabaseUserId, {
+        id: localInstrument.id,
+        name: localInstrument.name,
+        baseType: localInstrument.baseType,
+        strings: localInstrument.strings,
+        frets: localInstrument.frets,
+        isPublic: localInstrument.isPublic,
+      });
+    }
+  }
+
+  console.log('[Sync] Custom instruments sync complete');
 }
 
 // ============================================================================
@@ -511,6 +602,7 @@ export async function syncProfileToCloud(profile: {
  * Sync preferences to cloud after local edit.
  */
 export async function syncPreferencesToCloud(prefs: {
+  defaultInstrument?: string;
   chordListPosition: 'top' | 'right' | 'bottom';
   theme: 'light' | 'dark' | 'auto';
   compactView: boolean;
@@ -524,6 +616,7 @@ export async function syncPreferencesToCloud(prefs: {
 
   try {
     const { error } = await upsertPreferences(userId, {
+      default_instrument: prefs.defaultInstrument ?? null,
       chord_list_position: prefs.chordListPosition,
       theme: prefs.theme,
       compact_view: prefs.compactView,
@@ -540,5 +633,56 @@ export async function syncPreferencesToCloud(prefs: {
   } catch (err) {
     console.error('[Sync] Failed to sync preferences:', err);
     return { error: err instanceof Error ? err.message : 'Failed to sync preferences' };
+  }
+}
+
+/**
+ * Sync a custom instrument to cloud after local create/edit.
+ */
+export async function syncCustomInstrumentToCloud(instrument: CustomInstrument): Promise<{ error?: string }> {
+  if (!isAuthenticated()) return { error: 'Not authenticated' };
+
+  const userId = getSupabaseUserId();
+  if (!userId) return { error: 'No user ID' };
+
+  try {
+    const { error } = await upsertCustomInstrument(userId, {
+      id: instrument.id,
+      name: instrument.name,
+      baseType: instrument.baseType,
+      strings: instrument.strings,
+      frets: instrument.frets,
+      isPublic: instrument.isPublic,
+    });
+
+    if (error) {
+      return { error: String(error) };
+    }
+
+    console.log('[Sync] Custom instrument synced to cloud:', instrument.name);
+    return {};
+  } catch (err) {
+    console.error('[Sync] Failed to sync custom instrument:', err);
+    return { error: err instanceof Error ? err.message : 'Failed to sync custom instrument' };
+  }
+}
+
+/**
+ * Delete a custom instrument from cloud.
+ */
+export async function deleteCustomInstrumentFromCloud(instrumentId: string): Promise<{ error?: string }> {
+  if (!isAuthenticated()) return { error: 'Not authenticated' };
+
+  try {
+    const { error } = await deleteCustomInstrumentFromSupabase(instrumentId);
+    if (error) {
+      return { error: String(error) };
+    }
+
+    console.log('[Sync] Custom instrument deleted from cloud');
+    return {};
+  } catch (err) {
+    console.error('[Sync] Failed to delete custom instrument from cloud:', err);
+    return { error: err instanceof Error ? err.message : 'Failed to delete' };
   }
 }

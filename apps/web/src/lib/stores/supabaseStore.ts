@@ -38,6 +38,8 @@ export interface SupabaseProfile {
 
 export interface SupabasePreferences {
   user_id: string;
+  /** Renderer instrument name (e.g., "Standard Guitar") or custom instrument ID */
+  default_instrument: string | null;
   chord_list_position: 'top' | 'right' | 'bottom';
   theme: 'light' | 'dark' | 'auto';
   compact_view: boolean;
@@ -450,6 +452,114 @@ export async function upsertPreferences(
     return { data: data as SupabasePreferences };
   } catch (err) {
     console.error('Exception upserting preferences:', err);
+    return { error: err };
+  }
+}
+
+// ============================================================================
+// Custom Instruments Management
+// ============================================================================
+
+export interface SupabaseCustomInstrument {
+  id: string;
+  user_id: string;
+  name: string;
+  base_type: string;
+  strings: string[];
+  frets: number;
+  is_public: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Get all custom instruments for a user
+ */
+export async function getCustomInstruments(
+  userId: string
+): Promise<{ data?: SupabaseCustomInstrument[]; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('custom_instruments')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error getting custom instruments:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseCustomInstrument[] };
+  } catch (err) {
+    console.error('Exception getting custom instruments:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Upsert a custom instrument
+ */
+export async function upsertCustomInstrument(
+  userId: string,
+  instrument: {
+    id: string;
+    name: string;
+    baseType: string;
+    strings: string[];
+    frets: number;
+    isPublic: boolean;
+  }
+): Promise<{ data?: SupabaseCustomInstrument; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('custom_instruments')
+      .upsert({
+        id: instrument.id,
+        user_id: userId,
+        name: instrument.name,
+        base_type: instrument.baseType,
+        strings: instrument.strings,
+        frets: instrument.frets,
+        is_public: instrument.isPublic,
+      }, {
+        onConflict: 'id',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error upserting custom instrument:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseCustomInstrument };
+  } catch (err) {
+    console.error('Exception upserting custom instrument:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Delete a custom instrument
+ */
+export async function deleteCustomInstrument(
+  instrumentId: string
+): Promise<{ success?: boolean; error?: unknown }> {
+  try {
+    const { error } = await supabase
+      .from('custom_instruments')
+      .delete()
+      .eq('id', instrumentId);
+
+    if (error) {
+      console.error('Error deleting custom instrument:', error);
+      return { error };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Exception deleting custom instrument:', err);
     return { error: err };
   }
 }

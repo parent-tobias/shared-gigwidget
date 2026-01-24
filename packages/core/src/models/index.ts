@@ -59,7 +59,8 @@ export interface User {
 
 export interface UserPreferences {
   userId: string;
-  defaultInstrument?: Instrument;
+  /** Renderer instrument name (e.g., "Standard Guitar") or custom instrument ID */
+  defaultInstrument?: string;
   defaultTuning?: string;
   autoSaveInterval: number; // ms
   snapshotRetention: number; // count

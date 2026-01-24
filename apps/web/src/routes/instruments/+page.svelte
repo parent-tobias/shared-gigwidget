@@ -2,6 +2,8 @@
   import { browser } from '$app/environment';
   import type { CustomInstrument, Instrument } from '@gigwidget/core';
   import { INSTRUMENTS } from '@gigwidget/core';
+  import { isAuthenticated } from '$lib/stores/authStore.svelte';
+  import { syncCustomInstrumentToCloud, deleteCustomInstrumentFromCloud } from '$lib/stores/syncStore.svelte';
 
   let instruments = $state<CustomInstrument[]>([]);
   let loading = $state(true);
@@ -106,6 +108,11 @@
       await CustomInstrumentRepository.create(newInstrument);
       instruments = [...instruments, newInstrument];
 
+      // Sync to cloud if authenticated
+      if (isAuthenticated()) {
+        syncCustomInstrumentToCloud(newInstrument);
+      }
+
       // Reset form
       newName = '';
       newBaseType = 'guitar';
@@ -128,6 +135,11 @@
       const { CustomInstrumentRepository } = await import('@gigwidget/db');
       await CustomInstrumentRepository.delete(id);
       instruments = instruments.filter((i) => i.id !== id);
+
+      // Delete from cloud if authenticated
+      if (isAuthenticated()) {
+        deleteCustomInstrumentFromCloud(id);
+      }
     } catch (err) {
       console.error('Failed to delete instrument:', err);
     }
