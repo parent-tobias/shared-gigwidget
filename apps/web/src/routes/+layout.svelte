@@ -17,42 +17,29 @@
   $effect(() => {
     if (!browser) return;
 
-    console.log('[Gigwidget] $effect running in browser, URL:', window.location.href);
-
     // Run initialization
     (async () => {
       try {
         // Check for bootstrap context first
         const bootstrapCtx = sessionStore.getBootstrapContext();
         if (bootstrapCtx?.bootstrapComplete) {
-          console.log('[Gigwidget] Bootstrap context detected, initializing in bootstrap mode');
           bootstrapMode = true;
           await initializeWithBootstrap(bootstrapCtx);
           return;
         }
 
-        console.log('[Gigwidget] Importing @gigwidget/db...');
         const { initializeDatabase } = await import('@gigwidget/db');
-        console.log('[Gigwidget] Import successful, calling initializeDatabase...');
         await initializeDatabase();
-        console.log('[Gigwidget] Database initialized');
 
         // Initialize auth listener
         initializeAuth();
-        console.log('[Gigwidget] Auth listener initialized');
 
         initialized = true;
-        console.log('[Gigwidget] Layout initialized, rendering children');
       } catch (err) {
         console.error('[Gigwidget] Failed to initialize:', err);
         error = err instanceof Error ? err.message : String(err);
       }
     })();
-  });
-
-  // Debug: track when initialized actually changes
-  $effect(() => {
-    console.log('[Gigwidget] initialized state is now:', initialized);
   });
 
   /**

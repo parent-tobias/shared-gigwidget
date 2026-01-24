@@ -26,6 +26,27 @@ export const supabase = new Proxy({} as SupabaseClient, {
 // Types for Supabase Tables
 // ============================================================================
 
+export interface SupabaseProfile {
+  id: string;
+  display_name: string;
+  instruments: string[];
+  avatar_url: string | null;
+  subscription_tier: 'free' | 'basic' | 'pro' | 'mod';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupabasePreferences {
+  user_id: string;
+  chord_list_position: 'top' | 'right' | 'bottom';
+  theme: 'light' | 'dark' | 'auto';
+  compact_view: boolean;
+  auto_save_interval: number;
+  snapshot_retention: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SupabaseSong {
   id: string;
   user_id: string;
@@ -265,6 +286,170 @@ export async function updateSongVisibility(
     return { success: true };
   } catch (err) {
     console.error('Exception updating visibility:', err);
+    return { error: err };
+  }
+}
+
+// ============================================================================
+// Profile Management
+// ============================================================================
+
+/**
+ * Get user profile from Supabase
+ */
+export async function getProfile(
+  userId: string
+): Promise<{ data?: SupabaseProfile; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      // Profile might not exist yet for older users
+      if (error.code === 'PGRST116') {
+        return { data: undefined };
+      }
+      console.error('Error getting profile:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseProfile };
+  } catch (err) {
+    console.error('Exception getting profile:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Update or create user profile
+ */
+export async function upsertProfile(
+  userId: string,
+  profile: Partial<Omit<SupabaseProfile, 'id' | 'created_at' | 'updated_at'>>
+): Promise<{ data?: SupabaseProfile; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert({
+        id: userId,
+        ...profile,
+      }, {
+        onConflict: 'id',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error upserting profile:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseProfile };
+  } catch (err) {
+    console.error('Exception upserting profile:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Upload avatar to Supabase Storage
+ */
+export async function uploadAvatar(
+  userId: string,
+  file: Blob
+): Promise<{ url?: string; error?: unknown }> {
+  try {
+    const fileExt = file.type.split('/')[1] || 'png';
+    const filePath = `${userId}/avatar.${fileExt}`;
+
+    // Upload file (upsert to replace existing)
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(filePath, file, {
+        upsert: true,
+        contentType: file.type,
+      });
+
+    if (uploadError) {
+      console.error('Error uploading avatar:', uploadError);
+      return { error: uploadError };
+    }
+
+    // Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(filePath);
+
+    return { url: publicUrl };
+  } catch (err) {
+    console.error('Exception uploading avatar:', err);
+    return { error: err };
+  }
+}
+
+// ============================================================================
+// User Preferences Management
+// ============================================================================
+
+/**
+ * Get user preferences from Supabase
+ */
+export async function getPreferences(
+  userId: string
+): Promise<{ data?: SupabasePreferences; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('user_preferences')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      // Preferences might not exist yet
+      if (error.code === 'PGRST116') {
+        return { data: undefined };
+      }
+      console.error('Error getting preferences:', error);
+      return { error };
+    }
+
+    return { data: data as SupabasePreferences };
+  } catch (err) {
+    console.error('Exception getting preferences:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Update or create user preferences
+ */
+export async function upsertPreferences(
+  userId: string,
+  prefs: Partial<Omit<SupabasePreferences, 'user_id' | 'created_at' | 'updated_at'>>
+): Promise<{ data?: SupabasePreferences; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('user_preferences')
+      .upsert({
+        user_id: userId,
+        ...prefs,
+      }, {
+        onConflict: 'user_id',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error upserting preferences:', error);
+      return { error };
+    }
+
+    return { data: data as SupabasePreferences };
+  } catch (err) {
+    console.error('Exception upserting preferences:', err);
     return { error: err };
   }
 }

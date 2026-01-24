@@ -5,8 +5,6 @@
   import { supabase } from '$lib/stores/supabaseStore';
   import { initializeAuth } from '$lib/stores/authStore.svelte';
 
-  console.log('[Auth Confirm] Script executing (component instantiating)');
-
   let status = $state<'verifying' | 'success' | 'error'>('verifying');
   let errorMessage = $state<string | null>(null);
   let hasRun = false;
@@ -16,19 +14,10 @@
     if (!browser || hasRun) return;
     hasRun = true;
 
-    console.log('[Auth Confirm] $effect running (mounted)');
-
-    try {
-      initializeAuth();
-      console.log('[Auth Confirm] initializeAuth called');
-    } catch (err) {
-      console.error('[Auth Confirm] initializeAuth failed:', err);
-    }
+    initializeAuth();
 
     const token_hash = $page.url.searchParams.get('token_hash');
     const type = $page.url.searchParams.get('type') as 'email' | 'recovery' | 'invite' | 'magiclink' | null;
-
-    console.log('[Auth Confirm] Starting verification with:', { token_hash: token_hash?.slice(0, 8) + '...', type });
 
     if (!token_hash || !type) {
       status = 'error';
@@ -39,21 +28,16 @@
     // Run verification async
     (async () => {
       try {
-        console.log('[Auth Confirm] Calling verifyOtp with:', { token_hash: token_hash?.slice(0, 8) + '...', type });
         const { data, error } = await supabase.auth.verifyOtp({
           token_hash,
           type,
         });
-        console.log('[Auth Confirm] verifyOtp completed:', { hasData: !!data, hasSession: !!data?.session, error: error?.message });
 
         if (error) {
           status = 'error';
           errorMessage = error.message;
-          console.error('[Auth Confirm] Verification error:', error);
         } else {
           status = 'success';
-          console.log('[Auth Confirm] Success! Redirecting...');
-          // Redirect to account page after a brief moment
           setTimeout(() => {
             goto('/account');
           }, 1500);
@@ -61,7 +45,6 @@
       } catch (err) {
         status = 'error';
         errorMessage = err instanceof Error ? err.message : 'Verification failed';
-        console.error('[Auth Confirm] Verification exception:', err);
       }
     })();
   });

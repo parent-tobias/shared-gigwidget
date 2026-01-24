@@ -14,8 +14,15 @@ import {
   subscribeToSongs,
   unsubscribe,
   fromSupabaseSong,
+  getProfile,
+  upsertProfile,
+  uploadAvatar,
+  getPreferences,
+  upsertPreferences,
   type SupabaseSong,
   type SongChangePayload,
+  type SupabaseProfile,
+  type SupabasePreferences,
 } from './supabaseStore';
 import { getSupabaseUserId, isAuthenticated } from './authStore.svelte';
 
@@ -122,6 +129,12 @@ async function performInitialSync(userId: string): Promise<void> {
       throw new Error('No local user found');
     }
 
+    // Sync profile from cloud
+    await syncProfileFromCloud(db, userId, localUser);
+
+    // Sync preferences from cloud
+    await syncPreferencesFromCloud(db, userId, localUser.id);
+
     // Load songs from Supabase
     console.log('[Sync] Loading songs from cloud...');
     const { data: cloudSongs, error: loadError } = await loadSongsFromSupabase(userId);
@@ -184,6 +197,86 @@ async function performInitialSync(userId: string): Promise<void> {
     console.error('[Sync] Initial sync failed:', err);
     syncError = err instanceof Error ? err.message : 'Sync failed';
     syncStatus = 'error';
+  }
+}
+
+// ============================================================================
+// Profile & Preferences Sync
+// ============================================================================
+
+/**
+ * Sync profile from cloud to local.
+ * Cloud is source of truth for profile data.
+ */
+async function syncProfileFromCloud(
+  db: Awaited<ReturnType<typeof import('@gigwidget/db').getDatabase>>,
+  supabaseUserId: string,
+  localUser: { id: string; displayName: string; instruments: string[]; subscriptionTier: string }
+): Promise<void> {
+  const { data: cloudProfile } = await getProfile(supabaseUserId);
+
+  if (cloudProfile) {
+    // Cloud profile exists - update local
+    console.log('[Sync] Syncing profile from cloud');
+    await db.users.update(localUser.id, {
+      displayName: cloudProfile.display_name,
+      instruments: cloudProfile.instruments,
+      subscriptionTier: cloudProfile.subscription_tier,
+      // Note: avatar_url is a remote URL, we store it differently locally
+    });
+  } else {
+    // No cloud profile - push local to cloud
+    console.log('[Sync] Pushing local profile to cloud');
+    await upsertProfile(supabaseUserId, {
+      display_name: localUser.displayName,
+      instruments: localUser.instruments,
+      subscription_tier: localUser.subscriptionTier as 'free' | 'basic' | 'pro' | 'mod',
+    });
+  }
+}
+
+/**
+ * Sync preferences from cloud to local.
+ */
+async function syncPreferencesFromCloud(
+  db: Awaited<ReturnType<typeof import('@gigwidget/db').getDatabase>>,
+  supabaseUserId: string,
+  localUserId: string
+): Promise<void> {
+  const { data: cloudPrefs } = await getPreferences(supabaseUserId);
+  const localPrefs = await db.userPreferences.where('userId').equals(localUserId).first();
+
+  if (cloudPrefs) {
+    // Cloud prefs exist - update local
+    console.log('[Sync] Syncing preferences from cloud');
+    if (localPrefs) {
+      await db.userPreferences.update(localPrefs.id || localUserId, {
+        chordListPosition: cloudPrefs.chord_list_position,
+        theme: cloudPrefs.theme,
+        compactView: cloudPrefs.compact_view,
+        autoSaveInterval: cloudPrefs.auto_save_interval,
+        snapshotRetention: cloudPrefs.snapshot_retention,
+      });
+    } else {
+      await db.userPreferences.add({
+        userId: localUserId,
+        chordListPosition: cloudPrefs.chord_list_position,
+        theme: cloudPrefs.theme,
+        compactView: cloudPrefs.compact_view,
+        autoSaveInterval: cloudPrefs.auto_save_interval,
+        snapshotRetention: cloudPrefs.snapshot_retention,
+      });
+    }
+  } else if (localPrefs) {
+    // No cloud prefs but local exists - push to cloud
+    console.log('[Sync] Pushing local preferences to cloud');
+    await upsertPreferences(supabaseUserId, {
+      chord_list_position: localPrefs.chordListPosition,
+      theme: localPrefs.theme,
+      compact_view: localPrefs.compactView,
+      auto_save_interval: localPrefs.autoSaveInterval,
+      snapshot_retention: localPrefs.snapshotRetention,
+    });
   }
 }
 
@@ -344,4 +437,88 @@ export async function forceSync(): Promise<void> {
   if (!userId) return;
 
   await performInitialSync(userId);
+}
+
+/**
+ * Sync profile to cloud after local edit.
+ */
+export async function syncProfileToCloud(profile: {
+  displayName: string;
+  instruments: string[];
+  subscriptionTier: string;
+  avatar?: Blob;
+}): Promise<{ error?: string }> {
+  if (!isAuthenticated()) return { error: 'Not authenticated' };
+
+  const userId = getSupabaseUserId();
+  if (!userId) return { error: 'No user ID' };
+
+  try {
+    let avatarUrl: string | undefined;
+
+    // Upload avatar if provided
+    if (profile.avatar) {
+      const { url, error: avatarError } = await uploadAvatar(userId, profile.avatar);
+      if (avatarError) {
+        console.error('[Sync] Failed to upload avatar:', avatarError);
+        // Continue without avatar update
+      } else {
+        avatarUrl = url;
+      }
+    }
+
+    // Update profile
+    const { error } = await upsertProfile(userId, {
+      display_name: profile.displayName,
+      instruments: profile.instruments,
+      subscription_tier: profile.subscriptionTier as 'free' | 'basic' | 'pro' | 'mod',
+      ...(avatarUrl && { avatar_url: avatarUrl }),
+    });
+
+    if (error) {
+      return { error: String(error) };
+    }
+
+    console.log('[Sync] Profile synced to cloud');
+    return {};
+  } catch (err) {
+    console.error('[Sync] Failed to sync profile:', err);
+    return { error: err instanceof Error ? err.message : 'Failed to sync profile' };
+  }
+}
+
+/**
+ * Sync preferences to cloud after local edit.
+ */
+export async function syncPreferencesToCloud(prefs: {
+  chordListPosition: 'top' | 'right' | 'bottom';
+  theme: 'light' | 'dark' | 'auto';
+  compactView: boolean;
+  autoSaveInterval?: number;
+  snapshotRetention?: number;
+}): Promise<{ error?: string }> {
+  if (!isAuthenticated()) return { error: 'Not authenticated' };
+
+  const userId = getSupabaseUserId();
+  if (!userId) return { error: 'No user ID' };
+
+  try {
+    const { error } = await upsertPreferences(userId, {
+      chord_list_position: prefs.chordListPosition,
+      theme: prefs.theme,
+      compact_view: prefs.compactView,
+      ...(prefs.autoSaveInterval && { auto_save_interval: prefs.autoSaveInterval }),
+      ...(prefs.snapshotRetention && { snapshot_retention: prefs.snapshotRetention }),
+    });
+
+    if (error) {
+      return { error: String(error) };
+    }
+
+    console.log('[Sync] Preferences synced to cloud');
+    return {};
+  } catch (err) {
+    console.error('[Sync] Failed to sync preferences:', err);
+    return { error: err instanceof Error ? err.message : 'Failed to sync preferences' };
+  }
 }

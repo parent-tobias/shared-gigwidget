@@ -38,9 +38,7 @@ export function initializeAuth(): void {
   initialized = true;
 
   // Get initial session
-  console.log('[Auth] Calling getSession...');
   supabase.auth.getSession().then(async ({ data: { session }, error }) => {
-    console.log('[Auth] getSession completed:', { hasSession: !!session, error: error?.message });
     if (error) {
       console.error('[Auth] Error getting session:', error);
       authError = error.message;
@@ -50,7 +48,6 @@ export function initializeAuth(): void {
 
       // If already logged in, start sync
       if (session?.user) {
-        console.log('[Auth] Existing session found, initializing sync...');
         await linkToLocalUser(session.user.id);
         const { initializeSync } = await import('./syncStore.svelte');
         await initializeSync();
@@ -65,7 +62,6 @@ export function initializeAuth(): void {
 
   // Listen for auth changes
   supabase.auth.onAuthStateChange(async (event, session) => {
-    console.log('[Auth] State changed:', event);
     authSession = session;
     authUser = session?.user ?? null;
     authError = null;

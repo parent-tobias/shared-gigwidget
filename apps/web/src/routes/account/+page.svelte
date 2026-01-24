@@ -10,7 +10,7 @@
     isAuthenticated,
     getSupabaseEmail,
   } from '$lib/stores/authStore.svelte';
-  import { getSyncState, forceSync, isSyncing } from '$lib/stores/syncStore.svelte';
+  import { getSyncState, forceSync, isSyncing, syncProfileToCloud, syncPreferencesToCloud } from '$lib/stores/syncStore.svelte';
 
   let user = $state<User | null>(null);
   let loading = $state(true);
@@ -156,6 +156,18 @@
         });
       }
 
+      // Sync to cloud if authenticated
+      if (isAuthenticated()) {
+        const { error: syncError } = await syncPreferencesToCloud({
+          chordListPosition,
+          theme,
+          compactView,
+        });
+        if (syncError) {
+          console.warn('Preferences saved locally but cloud sync failed:', syncError);
+        }
+      }
+
       preferencesSuccess = true;
       setTimeout(() => { preferencesSuccess = false; }, 3000);
     } catch (err) {
@@ -213,13 +225,29 @@
         instruments: [...editInstruments],
       };
 
+      let avatarBlob: Blob | undefined;
       if (avatarFile) {
         // Convert File to Blob to avoid serialization issues
-        updates.avatar = new Blob([await avatarFile.arrayBuffer()], { type: avatarFile.type });
+        avatarBlob = new Blob([await avatarFile.arrayBuffer()], { type: avatarFile.type });
+        updates.avatar = avatarBlob;
       }
 
       await db.users.update(user.id, updates);
       user = { ...user, ...updates };
+
+      // Sync to cloud if authenticated
+      if (isAuthenticated()) {
+        const { error: syncError } = await syncProfileToCloud({
+          displayName: editDisplayName.trim(),
+          instruments: [...editInstruments],
+          subscriptionTier: user.subscriptionTier,
+          avatar: avatarBlob,
+        });
+        if (syncError) {
+          console.warn('Profile saved locally but cloud sync failed:', syncError);
+        }
+      }
+
       avatarFile = null;
       profileSuccess = true;
 
