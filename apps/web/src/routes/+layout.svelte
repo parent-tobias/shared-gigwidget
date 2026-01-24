@@ -2,8 +2,10 @@
   import '../app.css';
   import { browser } from '$app/environment';
   import SessionOverlay from '$lib/components/SessionOverlay.svelte';
+  import AppShell from '$lib/components/AppShell.svelte';
   import { getSessionStore } from '$lib/stores/sessionStore.svelte';
   import { initializeAuth } from '$lib/stores/authStore.svelte';
+  import { initializeNavigation } from '$lib/stores/navigationStore.svelte';
 
   let { children } = $props();
 
@@ -33,6 +35,9 @@
 
         // Initialize auth listener
         initializeAuth();
+
+        // Initialize navigation state
+        initializeNavigation();
 
         initialized = true;
       } catch (err) {
@@ -125,7 +130,9 @@
     <p>Loading Gigwidget...</p>
   </div>
 {:else}
-  {@render children()}
+  <AppShell>
+    {@render children()}
+  </AppShell>
   <SessionOverlay />
 {/if}
 

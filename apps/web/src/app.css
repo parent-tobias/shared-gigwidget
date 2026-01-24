@@ -30,6 +30,14 @@
   /* Transitions */
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
+
+  /* Layout - Three-pane structure */
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 60px;
+  --list-pane-width: 320px;
+  --list-pane-min-width: 280px;
+  --list-pane-max-width: 400px;
+  --header-height: 56px;
 }
 
 /* Reset */
