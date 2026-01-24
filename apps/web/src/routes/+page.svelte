@@ -4,7 +4,7 @@
 
   $effect(() => {
     if (browser) {
-      goto('/settings/instruments', { replaceState: true });
+      goto('/library', { replaceState: true });
     }
   });
 </script>
