@@ -50,6 +50,11 @@
     })();
   });
 
+  // Debug: track when initialized actually changes
+  $effect(() => {
+    console.log('[Gigwidget] initialized state is now:', initialized);
+  });
+
   /**
    * Initialize the app with bootstrap context.
    * Applies received song data and joins the session.

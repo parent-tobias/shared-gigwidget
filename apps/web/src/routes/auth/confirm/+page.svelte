@@ -5,6 +5,8 @@
   import { supabase } from '$lib/stores/supabaseStore';
   import { initializeAuth } from '$lib/stores/authStore.svelte';
 
+  console.log('[Auth Confirm] Script executing (component instantiating)');
+
   let status = $state<'verifying' | 'success' | 'error'>('verifying');
   let errorMessage = $state<string | null>(null);
 
