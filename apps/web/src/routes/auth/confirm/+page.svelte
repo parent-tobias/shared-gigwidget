@@ -9,7 +9,14 @@
   let errorMessage = $state<string | null>(null);
 
   onMount(async () => {
-    initializeAuth();
+    console.log('[Auth Confirm] onMount started');
+
+    try {
+      initializeAuth();
+      console.log('[Auth Confirm] initializeAuth called');
+    } catch (err) {
+      console.error('[Auth Confirm] initializeAuth failed:', err);
+    }
 
     const token_hash = $page.url.searchParams.get('token_hash');
     const type = $page.url.searchParams.get('type') as 'email' | 'recovery' | 'invite' | 'magiclink' | null;
@@ -23,12 +30,12 @@
     }
 
     try {
-      console.log('[Auth Confirm] Calling verifyOtp...');
+      console.log('[Auth Confirm] Calling verifyOtp with:', { token_hash: token_hash?.slice(0, 8) + '...', type });
       const { data, error } = await supabase.auth.verifyOtp({
         token_hash,
         type,
       });
-      console.log('[Auth Confirm] verifyOtp response:', { data, error });
+      console.log('[Auth Confirm] verifyOtp completed:', { hasData: !!data, hasSession: !!data?.session, error: error?.message });
 
       if (error) {
         status = 'error';
