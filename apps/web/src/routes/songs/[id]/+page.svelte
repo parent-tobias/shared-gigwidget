@@ -20,6 +20,10 @@
   let theme = $state<'light' | 'dark' | 'auto'>('auto');
   let compactView = $state(false);
 
+  // Renderer view controls
+  let isMaximized = $state(false);
+  let rendererTheme = $state<'light' | 'dark'>('dark');
+
   // Transpose state
   let transposeSemitones = $state(0);
   let showTransposeModal = $state(false);
@@ -238,6 +242,24 @@
     }
   }
 
+  function toggleMaximize() {
+    isMaximized = !isMaximized;
+    // Prevent body scroll when maximized
+    if (browser) {
+      document.body.style.overflow = isMaximized ? 'hidden' : '';
+    }
+  }
+
+  function toggleRendererTheme() {
+    rendererTheme = rendererTheme === 'dark' ? 'light' : 'dark';
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && isMaximized) {
+      toggleMaximize();
+    }
+  }
+
   function handleContentChange(e: CustomEvent<{ content: string }>) {
     editorContent = e.detail.content;
     updateYjsContent(e.detail.content);
@@ -405,6 +427,8 @@
   }
 </script>
 
+<svelte:window onkeydown={handleKeydown} />
+
 <svelte:head>
   <title>{song?.title ?? 'Loading...'} - Gigwidget</title>
 </svelte:head>
@@ -516,36 +540,64 @@
         {/if}
       {:else}
         {#if rendererReady && selectedArrangement}
-          <div class="renderer-toolbar">
-            <div class="transpose-buttons">
-              <button class="transpose-btn" onclick={() => transposeBy(-1)} title="Transpose down">
-                -1
-              </button>
-              <button
-                class="transpose-display"
-                onclick={() => (showTransposeModal = true)}
-                title="Click to transpose to key"
-              >
-                {#if transposeSemitones === 0}
-                  Original
-                {:else}
-                  {transposeSemitones > 0 ? '+' : ''}{transposeSemitones}
-                {/if}
-              </button>
-              <button class="transpose-btn" onclick={() => transposeBy(1)} title="Transpose up">
-                +1
-              </button>
-              {#if transposeSemitones !== 0}
-                <button class="reset-btn" onclick={resetTranspose}>Reset</button>
-              {/if}
+          <div class="renderer-container" class:maximized={isMaximized}>
+            <div class="renderer-toolbar">
+              <div class="toolbar-left">
+                <div class="transpose-buttons">
+                  <button class="transpose-btn" onclick={() => transposeBy(-1)} title="Transpose down">
+                    -1
+                  </button>
+                  <button
+                    class="transpose-display"
+                    onclick={() => (showTransposeModal = true)}
+                    title="Click to transpose to key"
+                  >
+                    {#if transposeSemitones === 0}
+                      Original
+                    {:else}
+                      {transposeSemitones > 0 ? '+' : ''}{transposeSemitones}
+                    {/if}
+                  </button>
+                  <button class="transpose-btn" onclick={() => transposeBy(1)} title="Transpose up">
+                    +1
+                  </button>
+                  {#if transposeSemitones !== 0}
+                    <button class="reset-btn" onclick={resetTranspose}>Reset</button>
+                  {/if}
+                </div>
+              </div>
+              <div class="toolbar-right">
+                <button
+                  class="toolbar-btn"
+                  onclick={toggleRendererTheme}
+                  title={rendererTheme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                >
+                  {rendererTheme === 'dark' ? '☀️' : '🌙'}
+                </button>
+                <button
+                  class="toolbar-btn maximize-btn"
+                  onclick={toggleMaximize}
+                  title={isMaximized ? 'Exit fullscreen (Esc)' : 'Fullscreen'}
+                >
+                  {#if isMaximized}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+                    </svg>
+                  {:else}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                    </svg>
+                  {/if}
+                </button>
+              </div>
             </div>
-          </div>
-          <div class="renderer-wrapper">
-            <chordpro-renderer
-              content={displayContent}
-              theme="chordpro-dark"
-              chord-position={chordListPosition}
-            ></chordpro-renderer>
+            <div class="renderer-wrapper" class:renderer-light={rendererTheme === 'light'}>
+              <chordpro-renderer
+                content={displayContent}
+                theme={rendererTheme === 'dark' ? 'chordpro-dark' : 'chordpro-light'}
+                chord-position={chordListPosition}
+              ></chordpro-renderer>
+            </div>
           </div>
         {:else if !selectedArrangement}
           <div class="empty-state">
@@ -861,18 +913,97 @@
     min-height: 300px;
   }
 
+  /* Renderer container for maximize support */
+  .renderer-container {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .renderer-container.maximized {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background-color: var(--color-bg);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .renderer-container.maximized .renderer-toolbar {
+    border-radius: 0;
+    flex-shrink: 0;
+  }
+
+  .renderer-container.maximized .renderer-wrapper {
+    flex: 1;
+    border-radius: 0;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
   .renderer-toolbar {
     display: flex;
     align-items: center;
-    padding: var(--spacing-md) var(--spacing-md) 0;
+    justify-content: space-between;
+    padding: var(--spacing-sm) var(--spacing-md);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     background-color: var(--color-bg-secondary);
     border-bottom: 1px solid var(--color-border);
     margin-bottom: -1px;
   }
 
+  .toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
+  .toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+  }
+
+  .toolbar-btn {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    transition: all var(--transition-fast);
+  }
+
+  .toolbar-btn:hover {
+    background-color: var(--color-surface);
+    border-color: var(--color-primary);
+  }
+
+  .toolbar-btn svg {
+    display: block;
+  }
+
+  .maximize-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .renderer-toolbar .transpose-buttons {
     margin: 0;
+  }
+
+  /* Light theme for renderer */
+  .renderer-wrapper.renderer-light {
+    background-color: #ffffff;
+    color: #1a1a1a;
+  }
+
+  .renderer-wrapper.renderer-light chordpro-renderer {
+    --chordpro-bg: #ffffff;
+    --chordpro-text: #1a1a1a;
+    --chordpro-chord: #0066cc;
+    --chordpro-directive: #666666;
   }
 
   .editor-actions {
@@ -1476,16 +1607,39 @@
     }
 
     .renderer-toolbar {
-      padding: var(--spacing-xs) 0;
+      padding: var(--spacing-xs);
       border-radius: 0;
       gap: var(--spacing-xs);
-      flex-direction: column;
+      flex-wrap: wrap;
+    }
+
+    .toolbar-left {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .toolbar-right {
+      gap: var(--spacing-xs);
+    }
+
+    .toolbar-btn {
+      padding: var(--spacing-xs);
+      font-size: 0.875rem;
     }
 
     .transpose-buttons {
       width: 100%;
       border-radius: 0;
       gap: 0;
+    }
+
+    /* Maximized view takes full screen */
+    .renderer-container.maximized .renderer-toolbar {
+      padding: var(--spacing-xs);
+    }
+
+    .renderer-container.maximized .renderer-wrapper {
+      padding: var(--spacing-sm);
     }
 
     .transpose-btn {
