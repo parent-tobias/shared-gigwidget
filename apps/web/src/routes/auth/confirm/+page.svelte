@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { browser } from '$app/environment';
   import { supabase } from '$lib/stores/supabaseStore';
   import { initializeAuth } from '$lib/stores/authStore.svelte';
 
@@ -9,9 +9,14 @@
 
   let status = $state<'verifying' | 'success' | 'error'>('verifying');
   let errorMessage = $state<string | null>(null);
+  let hasRun = false;
 
-  onMount(async () => {
-    console.log('[Auth Confirm] onMount started');
+  // Use $effect instead of onMount for Svelte 5 compatibility
+  $effect(() => {
+    if (!browser || hasRun) return;
+    hasRun = true;
+
+    console.log('[Auth Confirm] $effect running (mounted)');
 
     try {
       initializeAuth();
@@ -31,31 +36,34 @@
       return;
     }
 
-    try {
-      console.log('[Auth Confirm] Calling verifyOtp with:', { token_hash: token_hash?.slice(0, 8) + '...', type });
-      const { data, error } = await supabase.auth.verifyOtp({
-        token_hash,
-        type,
-      });
-      console.log('[Auth Confirm] verifyOtp completed:', { hasData: !!data, hasSession: !!data?.session, error: error?.message });
+    // Run verification async
+    (async () => {
+      try {
+        console.log('[Auth Confirm] Calling verifyOtp with:', { token_hash: token_hash?.slice(0, 8) + '...', type });
+        const { data, error } = await supabase.auth.verifyOtp({
+          token_hash,
+          type,
+        });
+        console.log('[Auth Confirm] verifyOtp completed:', { hasData: !!data, hasSession: !!data?.session, error: error?.message });
 
-      if (error) {
+        if (error) {
+          status = 'error';
+          errorMessage = error.message;
+          console.error('[Auth Confirm] Verification error:', error);
+        } else {
+          status = 'success';
+          console.log('[Auth Confirm] Success! Redirecting...');
+          // Redirect to account page after a brief moment
+          setTimeout(() => {
+            goto('/account');
+          }, 1500);
+        }
+      } catch (err) {
         status = 'error';
-        errorMessage = error.message;
-        console.error('[Auth Confirm] Verification error:', error);
-      } else {
-        status = 'success';
-        console.log('[Auth Confirm] Success! Redirecting...');
-        // Redirect to account page after a brief moment
-        setTimeout(() => {
-          goto('/account');
-        }, 1500);
+        errorMessage = err instanceof Error ? err.message : 'Verification failed';
+        console.error('[Auth Confirm] Verification exception:', err);
       }
-    } catch (err) {
-      status = 'error';
-      errorMessage = err instanceof Error ? err.message : 'Verification failed';
-      console.error('[Auth Confirm] Verification exception:', err);
-    }
+    })();
   });
 </script>
 
