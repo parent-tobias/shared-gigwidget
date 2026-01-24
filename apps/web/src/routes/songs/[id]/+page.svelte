@@ -1000,10 +1000,26 @@
   }
 
   .renderer-wrapper.renderer-light chordpro-renderer {
-    --chordpro-bg: #ffffff;
-    --chordpro-text: #1a1a1a;
-    --chordpro-chord: #0066cc;
-    --chordpro-directive: #666666;
+    --component-bg: #ffffff;
+    --component-text: #1a1a1a;
+    --viewer-bg: #ffffff;
+    --viewer-text: #1a1a1a;
+    --chord-color: #0066cc;
+    --header-color: #333333;
+    --chord-charts-bg: #f5f5f5;
+    --chord-charts-border: #dddddd;
+  }
+
+  /* Dark theme for renderer (explicit for consistency) */
+  .renderer-wrapper:not(.renderer-light) chordpro-renderer {
+    --component-bg: var(--color-bg-secondary);
+    --component-text: var(--color-text);
+    --viewer-bg: var(--color-bg-secondary);
+    --viewer-text: var(--color-text);
+    --chord-color: #66b3ff;
+    --header-color: #ffffff;
+    --chord-charts-bg: var(--color-surface);
+    --chord-charts-border: var(--color-border);
   }
 
   .editor-actions {
