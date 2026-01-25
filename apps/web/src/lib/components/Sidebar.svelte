@@ -32,11 +32,13 @@
       <NavItem href="/browse" icon="globe">Browse</NavItem>
       <NavItem href="/library" icon="music">Library</NavItem>
       <NavItem href="/collections" icon="folder">Collections</NavItem>
+      <NavItem href="/import" icon="download">Import</NavItem>
     </div>
 
     <div class="nav-divider"></div>
 
     <div class="nav-section">
+      <NavItem href="/session" icon="users">Sessions</NavItem>
       <NavItem href="/settings" icon="settings">Settings</NavItem>
     </div>
   </nav>

@@ -81,7 +81,7 @@
         key: key || undefined,
         tempo: tempo ? Number(tempo) : undefined,
         tags: parsedTags,
-        visibility: 'private',
+        visibility: 'public',
       });
 
       const instrumentInfo = getInstrumentInfo();

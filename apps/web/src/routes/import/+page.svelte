@@ -5,6 +5,9 @@
   import type { OzbcozSearchResult, OzbcozSongDetail } from '@gigwidget/core';
 
   let user = $state<User | null>(null);
+  let activeTab = $state<'files' | 'ozbcoz'>('files');
+
+  // Ozbcoz search state
   let searchQuery = $state('');
   let searchResults = $state<OzbcozSearchResult[]>([]);
   let selectedSong = $state<OzbcozSongDetail | null>(null);
@@ -14,6 +17,24 @@
   let error = $state<string | null>(null);
   let importSuccess = $state<string | null>(null);
   let hasInitialized = false;
+
+  // File import state
+  interface ParsedFile {
+    filename: string;
+    path: string;
+    title: string;
+    artist: string;
+    key?: string;
+    tempo?: number;
+    content: string;
+    selected: boolean;
+  }
+
+  let parsedFiles = $state<ParsedFile[]>([]);
+  let isParsingFiles = $state(false);
+  let isImportingFiles = $state(false);
+  let fileImportProgress = $state({ current: 0, total: 0 });
+  let fileImportResults = $state<{ success: number; failed: number }>({ success: 0, failed: 0 });
 
   // Scraper functions loaded dynamically
   let searchOzbcozSongs: typeof import('@gigwidget/core').searchOzbcozSongs;
@@ -40,6 +61,171 @@
     })();
   });
 
+  // ChordPro file extensions
+  const CHORDPRO_EXTENSIONS = ['.chopro', '.chordpro', '.cho', '.crd', '.pro'];
+
+  function isChordProFile(filename: string): boolean {
+    const lower = filename.toLowerCase();
+    return CHORDPRO_EXTENSIONS.some(ext => lower.endsWith(ext));
+  }
+
+  function parseChordProDirectives(content: string): { title: string; artist: string; key?: string; tempo?: number } {
+    const lines = content.split('\n');
+    let title = '';
+    let artist = '';
+    let key: string | undefined;
+    let tempo: number | undefined;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      // Match directives like {title: ...} or {t: ...}
+      const match = trimmed.match(/^\{(\w+):\s*(.+?)\}$/);
+      if (match) {
+        const [, directive, value] = match;
+        const lowerDirective = directive.toLowerCase();
+
+        if (lowerDirective === 'title' || lowerDirective === 't') {
+          title = value.trim();
+        } else if (lowerDirective === 'subtitle' || lowerDirective === 'st' || lowerDirective === 'artist') {
+          artist = value.trim();
+        } else if (lowerDirective === 'key') {
+          key = value.trim();
+        } else if (lowerDirective === 'tempo') {
+          const parsed = parseInt(value.trim(), 10);
+          if (!isNaN(parsed)) tempo = parsed;
+        }
+      }
+    }
+
+    return { title, artist, key, tempo };
+  }
+
+  async function handleDirectorySelect(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const files = input.files;
+    if (!files || files.length === 0) return;
+
+    isParsingFiles = true;
+    error = null;
+    parsedFiles = [];
+
+    try {
+      const newParsedFiles: ParsedFile[] = [];
+
+      for (const file of Array.from(files)) {
+        if (!isChordProFile(file.name)) continue;
+
+        try {
+          const content = await file.text();
+          const { title, artist, key, tempo } = parseChordProDirectives(content);
+
+          newParsedFiles.push({
+            filename: file.name,
+            path: file.webkitRelativePath || file.name,
+            title: title || file.name.replace(/\.[^.]+$/, ''),
+            artist: artist || 'Unknown Artist',
+            key,
+            tempo,
+            content,
+            selected: true,
+          });
+        } catch (err) {
+          console.error(`Failed to parse ${file.name}:`, err);
+        }
+      }
+
+      // Sort by artist, then title
+      newParsedFiles.sort((a, b) => {
+        const artistCompare = a.artist.localeCompare(b.artist);
+        if (artistCompare !== 0) return artistCompare;
+        return a.title.localeCompare(b.title);
+      });
+
+      parsedFiles = newParsedFiles;
+
+      if (parsedFiles.length === 0) {
+        error = 'No ChordPro files found in the selected directory.';
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to parse files';
+    } finally {
+      isParsingFiles = false;
+    }
+  }
+
+  function toggleFileSelection(index: number) {
+    parsedFiles[index].selected = !parsedFiles[index].selected;
+  }
+
+  function selectAll() {
+    parsedFiles = parsedFiles.map(f => ({ ...f, selected: true }));
+  }
+
+  function selectNone() {
+    parsedFiles = parsedFiles.map(f => ({ ...f, selected: false }));
+  }
+
+  let selectedCount = $derived(parsedFiles.filter(f => f.selected).length);
+
+  async function importSelectedFiles() {
+    if (!user) return;
+
+    const filesToImport = parsedFiles.filter(f => f.selected);
+    if (filesToImport.length === 0) return;
+
+    isImportingFiles = true;
+    error = null;
+    fileImportProgress = { current: 0, total: filesToImport.length };
+    fileImportResults = { success: 0, failed: 0 };
+
+    try {
+      const { getDatabase } = await import('@gigwidget/db');
+      const { createSong, createArrangement } = await import('@gigwidget/core');
+      const db = getDatabase();
+
+      for (let i = 0; i < filesToImport.length; i++) {
+        const file = filesToImport[i];
+        fileImportProgress = { current: i + 1, total: filesToImport.length };
+
+        try {
+          // Create the song
+          const song = createSong(user.id, file.title, {
+            artist: file.artist,
+            key: file.key as any,
+            tempo: file.tempo,
+            tags: ['imported', 'file-import'],
+            visibility: 'public',
+          });
+
+          // Create default arrangement
+          const arrangement = createArrangement(song.id, 'guitar', {
+            content: file.content,
+          });
+
+          // Save to database
+          await db.songs.add(song);
+          await db.arrangements.add(arrangement);
+
+          fileImportResults.success++;
+        } catch (err) {
+          console.error(`Failed to import ${file.filename}:`, err);
+          fileImportResults.failed++;
+        }
+      }
+
+      // Clear imported files from the list
+      parsedFiles = parsedFiles.filter(f => !f.selected);
+
+      importSuccess = `Successfully imported ${fileImportResults.success} songs${fileImportResults.failed > 0 ? ` (${fileImportResults.failed} failed)` : ''}`;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Import failed';
+    } finally {
+      isImportingFiles = false;
+    }
+  }
+
+  // Ozbcoz functions
   async function handleSearch() {
     if (!searchQuery.trim() || !searchOzbcozSongs) return;
 
@@ -78,8 +264,6 @@
   }
 
   function cleanChordContent(content: string): string {
-    // Remove spaces between chord brackets and the following word
-    // e.g., "[Gm] slow" becomes "[Gm]slow"
     return content.replace(/\]\s+(?=[^\s\n\]])/g, ']');
   }
 
@@ -94,27 +278,24 @@
       const { createSong, createArrangement } = await import('@gigwidget/core');
       const db = getDatabase();
 
-      // Create the song
       const song = createSong(user.id, selectedSong.title, {
         artist: selectedSong.artist || selectedSong.writer,
         key: selectedSong.key as any,
         tempo: selectedSong.tempo,
         tags: ['imported', 'ozbcoz'],
+        visibility: 'public',
       });
 
-      // Create default arrangement with cleaned content
       const cleanedContent = cleanChordContent(selectedSong.content);
       const arrangement = createArrangement(song.id, 'ukulele', {
         content: cleanedContent,
       });
 
-      // Save to database
       await db.songs.add(song);
       await db.arrangements.add(arrangement);
 
       importSuccess = `Successfully imported "${selectedSong.title}"`;
 
-      // Reset after short delay
       setTimeout(() => {
         goto(`/songs/${song.id}`);
       }, 1500);
@@ -143,33 +324,25 @@
 
 <main class="container">
   <header class="header">
-    <a href="/" class="back-link">&larr; Back</a>
-    <h1>Import from ozbcoz.com</h1>
+    <h1>Import Songs</h1>
   </header>
 
-  <section class="search-section">
-    <p class="description">
-      Search the ozbcoz.com ukulele songbook for ChordPro songs to import into your library.
-    </p>
-
-    <div class="search-box">
-      <input
-        type="text"
-        bind:value={searchQuery}
-        onkeydown={handleKeydown}
-        placeholder="Search by song title or artist..."
-        class="search-input"
-        disabled={isSearching}
-      />
-      <button
-        onclick={handleSearch}
-        class="btn btn-primary"
-        disabled={isSearching || !searchQuery.trim()}
-      >
-        {isSearching ? 'Searching...' : 'Search'}
-      </button>
-    </div>
-  </section>
+  <div class="tabs">
+    <button
+      class="tab"
+      class:active={activeTab === 'files'}
+      onclick={() => { activeTab = 'files'; error = null; importSuccess = null; }}
+    >
+      From Files
+    </button>
+    <button
+      class="tab"
+      class:active={activeTab === 'ozbcoz'}
+      onclick={() => { activeTab = 'ozbcoz'; error = null; importSuccess = null; }}
+    >
+      From ozbcoz.com
+    </button>
+  </div>
 
   {#if error}
     <div class="error-message">{error}</div>
@@ -179,73 +352,170 @@
     <div class="success-message">{importSuccess}</div>
   {/if}
 
-  {#if selectedSong}
-    <section class="preview-section">
-      <div class="preview-header">
-        <h2>{selectedSong.title}</h2>
-        <button onclick={clearSelection} class="btn btn-secondary btn-small">Back to Results</button>
+  {#if activeTab === 'files'}
+    <section class="import-section">
+      <p class="description">
+        Select a folder containing ChordPro files (.chopro, .chordpro, .cho, .crd, .pro).
+        All files in the folder and subfolders will be scanned.
+      </p>
+
+      <div class="file-picker">
+        <input
+          type="file"
+          id="directory-input"
+          webkitdirectory
+          multiple
+          onchange={handleDirectorySelect}
+          disabled={isParsingFiles || isImportingFiles}
+          class="hidden-input"
+        />
+        <label for="directory-input" class="btn btn-primary">
+          {isParsingFiles ? 'Scanning...' : 'Choose Folder'}
+        </label>
       </div>
 
-      {#if selectedSong.artist}
-        <p class="preview-meta">Artist: {selectedSong.artist}</p>
-      {/if}
-      {#if selectedSong.writer && selectedSong.writer !== selectedSong.artist}
-        <p class="preview-meta">Writer: {selectedSong.writer}</p>
-      {/if}
-      {#if selectedSong.key}
-        <p class="preview-meta">Key: {selectedSong.key}</p>
-      {/if}
-      {#if selectedSong.tempo}
-        <p class="preview-meta">Tempo: {selectedSong.tempo} BPM</p>
-      {/if}
+      {#if parsedFiles.length > 0}
+        <div class="file-list-header">
+          <h2>Found {parsedFiles.length} ChordPro files</h2>
+          <div class="selection-controls">
+            <button class="btn btn-secondary btn-small" onclick={selectAll}>Select All</button>
+            <button class="btn btn-secondary btn-small" onclick={selectNone}>Select None</button>
+          </div>
+        </div>
 
-      <div class="preview-content">
-        <h3>ChordPro Content</h3>
-        <pre class="chordpro-preview">{selectedSong.content}</pre>
-      </div>
+        <div class="file-list">
+          {#each parsedFiles as file, index (file.path)}
+            <label class="file-item" class:selected={file.selected}>
+              <input
+                type="checkbox"
+                checked={file.selected}
+                onchange={() => toggleFileSelection(index)}
+                disabled={isImportingFiles}
+              />
+              <div class="file-info">
+                <span class="file-title">{file.title}</span>
+                <span class="file-artist">{file.artist}</span>
+              </div>
+              <div class="file-meta">
+                {#if file.key}
+                  <span class="file-key">{file.key}</span>
+                {/if}
+                <span class="file-path" title={file.path}>{file.filename}</span>
+              </div>
+            </label>
+          {/each}
+        </div>
 
-      <div class="import-actions">
-        <button
-          onclick={importSong}
-          class="btn btn-primary"
-          disabled={isImporting || !user}
-        >
-          {isImporting ? 'Importing...' : 'Import to Library'}
-        </button>
-        {#if selectedSong.youtubeUrl}
-          <a href={selectedSong.youtubeUrl} target="_blank" rel="noopener" class="btn btn-secondary">
-            View on YouTube
-          </a>
-        {/if}
-      </div>
-    </section>
-  {:else if searchResults.length > 0}
-    <section class="results-section">
-      <h2>Search Results ({searchResults.length})</h2>
-      <ul class="results-list">
-        {#each searchResults as result}
-          <li class="result-item">
-            <button onclick={() => loadSongDetails(result)} class="result-button" disabled={isLoadingDetails}>
-              <span class="result-title">{result.title}</span>
-              {#if result.artist}
-                <span class="result-artist">{result.artist}</span>
-              {/if}
-              {#if result.key}
-                <span class="result-key">{result.key}</span>
-              {/if}
+        <div class="import-actions">
+          {#if isImportingFiles}
+            <div class="progress-info">
+              Importing {fileImportProgress.current} of {fileImportProgress.total}...
+            </div>
+          {:else}
+            <button
+              onclick={importSelectedFiles}
+              class="btn btn-primary"
+              disabled={selectedCount === 0 || !user}
+            >
+              Import {selectedCount} Selected Songs
             </button>
-          </li>
-        {/each}
-      </ul>
+          {/if}
+        </div>
+      {/if}
     </section>
-  {:else if !isSearching && searchQuery}
-    <p class="no-results">No results yet. Click Search to find songs.</p>
-  {/if}
+  {:else}
+    <section class="import-section">
+      <p class="description">
+        Search the ozbcoz.com ukulele songbook for ChordPro songs to import into your library.
+      </p>
 
-  {#if isLoadingDetails}
-    <div class="loading-overlay">
-      <div class="loading-spinner">Loading song details...</div>
-    </div>
+      <div class="search-box">
+        <input
+          type="text"
+          bind:value={searchQuery}
+          onkeydown={handleKeydown}
+          placeholder="Search by song title or artist..."
+          class="search-input"
+          disabled={isSearching}
+        />
+        <button
+          onclick={handleSearch}
+          class="btn btn-primary"
+          disabled={isSearching || !searchQuery.trim()}
+        >
+          {isSearching ? 'Searching...' : 'Search'}
+        </button>
+      </div>
+
+      {#if selectedSong}
+        <section class="preview-section">
+          <div class="preview-header">
+            <h2>{selectedSong.title}</h2>
+            <button onclick={clearSelection} class="btn btn-secondary btn-small">Back to Results</button>
+          </div>
+
+          {#if selectedSong.artist}
+            <p class="preview-meta">Artist: {selectedSong.artist}</p>
+          {/if}
+          {#if selectedSong.writer && selectedSong.writer !== selectedSong.artist}
+            <p class="preview-meta">Writer: {selectedSong.writer}</p>
+          {/if}
+          {#if selectedSong.key}
+            <p class="preview-meta">Key: {selectedSong.key}</p>
+          {/if}
+          {#if selectedSong.tempo}
+            <p class="preview-meta">Tempo: {selectedSong.tempo} BPM</p>
+          {/if}
+
+          <div class="preview-content">
+            <h3>ChordPro Content</h3>
+            <pre class="chordpro-preview">{selectedSong.content}</pre>
+          </div>
+
+          <div class="import-actions">
+            <button
+              onclick={importSong}
+              class="btn btn-primary"
+              disabled={isImporting || !user}
+            >
+              {isImporting ? 'Importing...' : 'Import to Library'}
+            </button>
+            {#if selectedSong.youtubeUrl}
+              <a href={selectedSong.youtubeUrl} target="_blank" rel="noopener" class="btn btn-secondary">
+                View on YouTube
+              </a>
+            {/if}
+          </div>
+        </section>
+      {:else if searchResults.length > 0}
+        <section class="results-section">
+          <h2>Search Results ({searchResults.length})</h2>
+          <ul class="results-list">
+            {#each searchResults as result}
+              <li class="result-item">
+                <button onclick={() => loadSongDetails(result)} class="result-button" disabled={isLoadingDetails}>
+                  <span class="result-title">{result.title}</span>
+                  {#if result.artist}
+                    <span class="result-artist">{result.artist}</span>
+                  {/if}
+                  {#if result.key}
+                    <span class="result-key">{result.key}</span>
+                  {/if}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {:else if !isSearching && searchQuery}
+        <p class="no-results">No results yet. Click Search to find songs.</p>
+      {/if}
+
+      {#if isLoadingDetails}
+        <div class="loading-overlay">
+          <div class="loading-spinner">Loading song details...</div>
+        </div>
+      {/if}
+    </section>
   {/if}
 </main>
 
@@ -258,14 +528,32 @@
     border-bottom: 1px solid var(--color-border);
   }
 
-  .back-link {
-    color: var(--color-primary);
-    text-decoration: none;
-    font-size: 0.875rem;
+  .tabs {
+    display: flex;
+    gap: var(--spacing-xs);
+    margin-top: var(--spacing-lg);
+    border-bottom: 1px solid var(--color-border);
   }
 
-  .back-link:hover {
-    text-decoration: underline;
+  .tab {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--color-text-muted);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .tab:hover {
+    color: var(--color-text);
+  }
+
+  .tab.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
   }
 
   .description {
@@ -273,10 +561,131 @@
     margin-bottom: var(--spacing-md);
   }
 
-  .search-section {
-    margin-top: var(--spacing-xl);
+  .import-section {
+    margin-top: var(--spacing-lg);
   }
 
+  /* File picker */
+  .file-picker {
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .hidden-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+  }
+
+  .file-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .file-list-header h2 {
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .selection-controls {
+    display: flex;
+    gap: var(--spacing-xs);
+  }
+
+  .file-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-xs);
+  }
+
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+  }
+
+  .file-item:hover {
+    background-color: var(--color-surface);
+  }
+
+  .file-item.selected {
+    background-color: rgba(233, 69, 96, 0.1);
+  }
+
+  .file-item input[type="checkbox"] {
+    width: auto;
+    flex-shrink: 0;
+  }
+
+  .file-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .file-title {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-artist {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .file-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
+  }
+
+  .file-key {
+    background-color: var(--color-secondary);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  .file-path {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .progress-info {
+    color: var(--color-primary);
+    font-weight: 500;
+  }
+
+  /* Search */
   .search-box {
     display: flex;
     gap: var(--spacing-sm);
@@ -451,5 +860,27 @@
     padding: var(--spacing-lg) var(--spacing-xl);
     border-radius: var(--radius-lg);
     color: var(--color-text);
+  }
+
+  @media (max-width: 768px) {
+    .file-list-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--spacing-sm);
+    }
+
+    .file-item {
+      flex-wrap: wrap;
+    }
+
+    .file-meta {
+      width: 100%;
+      margin-top: var(--spacing-xs);
+      padding-left: calc(20px + var(--spacing-md));
+    }
+
+    .file-path {
+      max-width: none;
+    }
   }
 </style>
