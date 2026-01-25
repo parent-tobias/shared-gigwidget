@@ -159,12 +159,16 @@
 
       // Create arrangement with content if available
       const { createArrangement } = await import('@gigwidget/core');
+      const contentLength = remoteSong.content?.length ?? 0;
+      console.log(`[Browse] Adding song "${remoteSong.title}" with content length: ${contentLength}`);
+
       const arrangement = createArrangement(newSong.id, 'guitar', {
         content: remoteSong.content ?? '',
       });
 
       await db.songs.add(newSong);
       await db.arrangements.add(arrangement);
+      console.log(`[Browse] Successfully added song and arrangement`);
 
       // Update local tracking
       localSongIds = new Set([...localSongIds, remoteSong.id]);

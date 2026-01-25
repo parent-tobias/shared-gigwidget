@@ -119,37 +119,46 @@ export async function stopSync(): Promise<void> {
  * Perform initial sync: pull from cloud, push local changes.
  */
 async function performInitialSync(userId: string): Promise<void> {
+  console.log('[Sync] Starting initial sync for user:', userId);
   syncStatus = 'syncing';
   syncError = null;
 
   try {
     const { getDatabase } = await import('@gigwidget/db');
     const db = getDatabase();
+    console.log('[Sync] Database loaded');
 
     // Get local user
     const users = await db.users.toArray();
     const localUser = users[0];
+    console.log('[Sync] Local user:', localUser?.id, localUser?.displayName);
     if (!localUser) {
       throw new Error('No local user found');
     }
 
     // Sync profile from cloud (non-blocking - don't fail entire sync if profile sync fails)
+    console.log('[Sync] Syncing profile...');
     try {
       await syncProfileFromCloud(db, userId, localUser);
+      console.log('[Sync] Profile sync done');
     } catch (err) {
       console.error('[Sync] Profile sync failed (continuing):', err);
     }
 
     // Sync preferences from cloud (non-blocking)
+    console.log('[Sync] Syncing preferences...');
     try {
       await syncPreferencesFromCloud(db, userId, localUser.id);
+      console.log('[Sync] Preferences sync done');
     } catch (err) {
       console.error('[Sync] Preferences sync failed (continuing):', err);
     }
 
     // Sync custom instruments (non-blocking)
+    console.log('[Sync] Syncing custom instruments...');
     try {
       await syncCustomInstrumentsFromCloud(db, userId, localUser.id);
+      console.log('[Sync] Custom instruments sync done');
     } catch (err) {
       console.error('[Sync] Custom instruments sync failed (continuing):', err);
     }
@@ -164,7 +173,18 @@ async function performInitialSync(userId: string): Promise<void> {
 
     // Load local songs
     const localSongs = await db.songs.where('ownerId').equals(localUser.id).toArray();
-    console.log(`[Sync] Found ${localSongs.length} local songs, ${cloudSongs?.length ?? 0} cloud songs`);
+    const allArrangements = await db.arrangements.toArray();
+    console.log(`[Sync] Found ${localSongs.length} local songs, ${cloudSongs?.length ?? 0} cloud songs, ${allArrangements.length} total arrangements`);
+
+    // Debug: Check if arrangements have matching songIds
+    if (localSongs.length > 0 && allArrangements.length > 0) {
+      const sampleSong = localSongs[0];
+      const matchingArrs = allArrangements.filter(a => a.songId === sampleSong.id);
+      console.log(`[Sync] Sample song "${sampleSong.title}" (${sampleSong.id}) has ${matchingArrs.length} matching arrangements`);
+      if (allArrangements.length > 0) {
+        console.log(`[Sync] Sample arrangement songId: ${allArrangements[0].songId}`);
+      }
+    }
 
     // Create maps for comparison
     const cloudSongMap = new Map<string, SupabaseSong>();
@@ -506,6 +526,11 @@ async function pushSongToCloud(userId: string, song: Song): Promise<void> {
   const db = getDatabase();
   const arrangements = await db.arrangements.where('songId').equals(song.id).toArray();
   const content = arrangements[0]?.content ?? null;
+
+  // Debug: log if we're missing arrangement content
+  if (!content) {
+    console.warn(`[Sync] No arrangement content for song "${song.title}" (${song.id}), found ${arrangements.length} arrangements`);
+  }
 
   const { error } = await saveSongToSupabase(userId, song, content ?? undefined);
   if (error) {
