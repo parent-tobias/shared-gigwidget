@@ -12,6 +12,7 @@
   let hasLoaded = false;
   let showAddModal = $state(false);
   let draggedIndex = $state<number | null>(null);
+  let songSearchQuery = $state('');
 
   const setId = $derived($page.params.id);
 
@@ -129,10 +130,27 @@
     draggedIndex = null;
   }
 
-  function getAvailableSongs(): Song[] {
-    if (!set) return allSongs;
-    return allSongs.filter((s) => !set.songIds.includes(s.id));
-  }
+  // Limit display to prevent rendering 3000+ items
+  const MAX_DISPLAY = 50;
+
+  let filteredSongs = $derived.by(() => {
+    if (!set) return [];
+    let available = allSongs.filter((s) => !set.songIds.includes(s.id));
+
+    // Filter by search query
+    if (songSearchQuery.trim()) {
+      const query = songSearchQuery.toLowerCase().trim();
+      available = available.filter((s) =>
+        s.title.toLowerCase().includes(query) ||
+        (s.artist && s.artist.toLowerCase().includes(query))
+      );
+    }
+
+    return available;
+  });
+
+  let displayedSongs = $derived(filteredSongs.slice(0, MAX_DISPLAY));
+  let hasMoreSongs = $derived(filteredSongs.length > MAX_DISPLAY);
 </script>
 
 <svelte:head>
@@ -217,15 +235,42 @@
 </main>
 
 {#if showAddModal}
-  <div class="modal-overlay" onclick={() => (showAddModal = false)}>
+  <div class="modal-overlay" onclick={() => { showAddModal = false; songSearchQuery = ''; }}>
     <div class="modal" onclick={(e) => e.stopPropagation()}>
       <h2>Add Songs to Set</h2>
 
-      {#if getAvailableSongs().length === 0}
-        <p class="empty-message">All your songs are already in this set!</p>
+      <div class="search-box">
+        <input
+          type="text"
+          bind:value={songSearchQuery}
+          placeholder="Search by title or artist..."
+          class="search-input"
+        />
+        {#if songSearchQuery}
+          <button class="clear-search" onclick={() => songSearchQuery = ''}>×</button>
+        {/if}
+      </div>
+
+      <div class="results-info">
+        {#if songSearchQuery.trim()}
+          <span>{filteredSongs.length} matching songs</span>
+        {:else}
+          <span>{filteredSongs.length} songs available</span>
+        {/if}
+        {#if !songSearchQuery.trim() && filteredSongs.length > 0}
+          <span class="search-hint">Type to search</span>
+        {/if}
+      </div>
+
+      {#if filteredSongs.length === 0}
+        {#if songSearchQuery.trim()}
+          <p class="empty-message">No songs match "{songSearchQuery}"</p>
+        {:else}
+          <p class="empty-message">All your songs are already in this set!</p>
+        {/if}
       {:else}
         <ul class="available-songs">
-          {#each getAvailableSongs() as song (song.id)}
+          {#each displayedSongs as song (song.id)}
             <li class="available-song-item">
               <div class="song-info">
                 <span class="song-title">{song.title}</span>
@@ -239,10 +284,13 @@
             </li>
           {/each}
         </ul>
+        {#if hasMoreSongs}
+          <p class="more-hint">Showing {MAX_DISPLAY} of {filteredSongs.length} songs. Type to narrow results.</p>
+        {/if}
       {/if}
 
       <div class="modal-actions">
-        <button class="btn btn-secondary" onclick={() => (showAddModal = false)}>Done</button>
+        <button class="btn btn-secondary" onclick={() => { showAddModal = false; songSearchQuery = ''; }}>Done</button>
       </div>
     </div>
   </div>
@@ -455,7 +503,67 @@
   }
 
   .modal h2 {
-    margin: 0 0 var(--spacing-lg);
+    margin: 0 0 var(--spacing-md);
+  }
+
+  .search-box {
+    position: relative;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .search-input {
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-md);
+    padding-right: 2.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 0.9375rem;
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text);
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .clear-search {
+    position: absolute;
+    right: var(--spacing-sm);
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: var(--spacing-xs);
+    line-height: 1;
+  }
+
+  .clear-search:hover {
+    color: var(--color-text);
+  }
+
+  .results-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .search-hint {
+    font-style: italic;
+  }
+
+  .more-hint {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-top: var(--spacing-sm);
+    font-style: italic;
   }
 
   .empty-message {

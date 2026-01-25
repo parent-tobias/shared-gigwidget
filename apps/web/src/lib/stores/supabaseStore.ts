@@ -186,6 +186,43 @@ export async function loadPublicSongs(
 }
 
 /**
+ * Search public songs by title or artist
+ */
+export async function searchPublicSongs(
+  query: string,
+  options: { limit?: number; offset?: number } = {}
+): Promise<{ data?: SupabaseSong[]; error?: unknown; count?: number }> {
+  const { limit = 50, offset = 0 } = options;
+
+  try {
+    // Build query with OR filter for title and artist
+    let queryBuilder = supabase
+      .from('songs')
+      .select('*', { count: 'exact' })
+      .eq('visibility', 'public');
+
+    if (query.trim()) {
+      // Use ilike for case-insensitive search on title or artist
+      queryBuilder = queryBuilder.or(`title.ilike.%${query}%,artist.ilike.%${query}%`);
+    }
+
+    const { data, error, count } = await queryBuilder
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('Error searching public songs:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseSong[], count: count ?? undefined };
+  } catch (err) {
+    console.error('Exception searching public songs:', err);
+    return { error: err };
+  }
+}
+
+/**
  * Delete a song from Supabase
  */
 export async function deleteSongFromSupabase(
