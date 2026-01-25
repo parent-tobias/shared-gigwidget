@@ -200,11 +200,30 @@ async function performInitialSync(userId: string): Promise<void> {
     }
 
     // Push local-only songs to cloud
-    for (const localSong of localSongs) {
-      if (!cloudSongMap.has(localSong.id)) {
-        console.log(`[Sync] Pushing local song: ${localSong.title}`);
-        await pushSongToCloud(userId, localSong);
+    const localOnlySongs = localSongs.filter(s => !cloudSongMap.has(s.id));
+    const totalToPush = localOnlySongs.length;
+
+    if (totalToPush > 0) {
+      console.log(`[Sync] Pushing ${totalToPush} local-only songs to cloud...`);
+      pendingChanges = totalToPush;
+
+      let pushed = 0;
+      for (const localSong of localOnlySongs) {
+        try {
+          await pushSongToCloud(userId, localSong);
+          pushed++;
+          pendingChanges = totalToPush - pushed;
+
+          // Log progress every 50 songs or at milestones
+          if (pushed % 50 === 0 || pushed === totalToPush) {
+            console.log(`[Sync] Progress: ${pushed}/${totalToPush} songs pushed`);
+          }
+        } catch (err) {
+          console.error(`[Sync] Failed to push song "${localSong.title}":`, err);
+          // Continue with other songs even if one fails
+        }
       }
+      console.log(`[Sync] Pushed ${pushed}/${totalToPush} songs to cloud`);
     }
 
     lastSyncAt = new Date();

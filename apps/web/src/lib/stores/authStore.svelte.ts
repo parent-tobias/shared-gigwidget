@@ -49,8 +49,10 @@ export function initializeAuth(): void {
       // If already logged in, start sync
       if (session?.user) {
         await linkToLocalUser(session.user.id);
-        const { initializeSync } = await import('./syncStore.svelte');
-        await initializeSync();
+        // Start sync in background (don't await - could take a long time with many songs)
+        import('./syncStore.svelte').then(({ initializeSync }) => {
+          initializeSync().catch(err => console.error('[Auth] Background sync failed:', err));
+        });
       }
     }
     authLoading = false;
@@ -69,9 +71,10 @@ export function initializeAuth(): void {
     // Link to local user and start sync when signed in
     if (event === 'SIGNED_IN' && session?.user) {
       await linkToLocalUser(session.user.id);
-      // Start sync after linking user
-      const { initializeSync } = await import('./syncStore.svelte');
-      await initializeSync();
+      // Start sync in background (don't await - could take a long time with many songs)
+      import('./syncStore.svelte').then(({ initializeSync }) => {
+        initializeSync().catch(err => console.error('[Auth] Background sync failed:', err));
+      });
     }
 
     // Stop sync when signed out
