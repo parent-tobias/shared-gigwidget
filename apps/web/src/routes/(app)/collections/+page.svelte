@@ -59,7 +59,7 @@
     {:else}
       <div class="collection-list">
         {#each sets as set (set.id)}
-          <a href="/collections/{set.id}" class="collection-item">
+          <a href="/sets/{set.id}" class="collection-item">
             <div class="collection-icon">
               {#if set.isSetlist}
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
