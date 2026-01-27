@@ -130,7 +130,8 @@ export async function signInWithGoogle(): Promise<{ error: string | null }> {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: browser ? `${window.location.origin}/auth/confirm` : undefined,
+        // Redirect to account page after OAuth (not /auth/confirm which is for magic links)
+        redirectTo: browser ? `${window.location.origin}/settings/account` : undefined,
       },
     });
 
