@@ -13,7 +13,6 @@ import {
   deleteSongFromSupabase,
   subscribeToSongs,
   unsubscribe,
-  fromSupabaseSong,
   getProfile,
   upsertProfile,
   uploadAvatar,
@@ -79,23 +78,37 @@ export function isSyncing(): boolean {
  * Initialize sync when user is authenticated.
  * Call this after auth state changes to SIGNED_IN.
  */
+let syncInProgress = false;
+
 export async function initializeSync(): Promise<void> {
   if (!browser || !isAuthenticated()) {
     console.log('[Sync] Not authenticated, skipping sync initialization');
     return;
   }
 
+  // Prevent duplicate sync initialization
+  if (syncInProgress || initialized) {
+    console.log('[Sync] Sync already in progress or initialized, skipping');
+    return;
+  }
+
   const userId = getSupabaseUserId();
   if (!userId) return;
 
+  syncInProgress = true;
   console.log('[Sync] Initializing sync for user:', userId);
-  initialized = true;
 
-  // Perform initial sync
-  await performInitialSync(userId);
+  try {
+    // Perform initial sync
+    await performInitialSync(userId);
 
-  // Subscribe to real-time changes
-  setupRealtimeSubscription(userId);
+    // Subscribe to real-time changes
+    setupRealtimeSubscription(userId);
+
+    initialized = true;
+  } finally {
+    syncInProgress = false;
+  }
 }
 
 /**
@@ -535,37 +548,27 @@ async function pullSongToLocal(
   localUserId: string,
   cloudSong: SupabaseSong
 ): Promise<void> {
-  const songData = fromSupabaseSong(cloudSong);
-
-  // Check if song exists locally
+  // Check if song exists locally (to preserve local-only fields)
   const existingSong = await db.songs.get(cloudSong.id);
 
-  if (existingSong) {
-    // Update existing
-    await db.songs.update(cloudSong.id, {
-      ...songData,
-      ownerId: localUserId, // Keep local owner ID
-    });
-  } else {
-    // Create new with required fields
-    const { generateId } = await import('@gigwidget/core');
-    const newSong: Song = {
-      id: cloudSong.id,
-      ownerId: localUserId,
-      title: cloudSong.title,
-      artist: cloudSong.artist ?? undefined,
-      key: cloudSong.key as Song['key'],
-      tempo: cloudSong.tempo ?? undefined,
-      timeSignature: cloudSong.time_signature ?? undefined,
-      tags: cloudSong.tags ?? [],
-      visibility: cloudSong.visibility,
-      spaceIds: [],
-      createdAt: new Date(cloudSong.created_at),
-      updatedAt: new Date(cloudSong.updated_at),
-      yjsDocId: generateId(), // New Yjs doc for this device
-    };
-    await db.songs.add(newSong);
-  }
+  // Use put() instead of add() to handle race conditions gracefully
+  const { generateId } = await import('@gigwidget/core');
+  const newSong: Song = {
+    id: cloudSong.id,
+    ownerId: localUserId,
+    title: cloudSong.title,
+    artist: cloudSong.artist ?? undefined,
+    key: cloudSong.key as Song['key'],
+    tempo: cloudSong.tempo ?? undefined,
+    timeSignature: cloudSong.time_signature ?? undefined,
+    tags: cloudSong.tags ?? [],
+    visibility: cloudSong.visibility,
+    spaceIds: existingSong?.spaceIds ?? [],
+    createdAt: new Date(cloudSong.created_at),
+    updatedAt: new Date(cloudSong.updated_at),
+    yjsDocId: existingSong?.yjsDocId ?? generateId(), // Keep existing or generate new
+  };
+  await db.songs.put(newSong);
 }
 
 /**
