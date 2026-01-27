@@ -176,13 +176,64 @@ async function performInitialSync(userId: string): Promise<void> {
     const allArrangements = await db.arrangements.toArray();
     console.log(`[Sync] Found ${localSongs.length} local songs, ${cloudSongs?.length ?? 0} cloud songs, ${allArrangements.length} total arrangements`);
 
-    // Debug: Check if arrangements have matching songIds
-    if (localSongs.length > 0 && allArrangements.length > 0) {
-      const sampleSong = localSongs[0];
-      const matchingArrs = allArrangements.filter(a => a.songId === sampleSong.id);
-      console.log(`[Sync] Sample song "${sampleSong.title}" (${sampleSong.id}) has ${matchingArrs.length} matching arrangements`);
-      if (allArrangements.length > 0) {
-        console.log(`[Sync] Sample arrangement songId: ${allArrangements[0].songId}`);
+    // Debug: Comprehensive arrangement analysis
+    if (localSongs.length > 0) {
+      // Build a map of songId -> arrangements
+      const arrBySongId = new Map<string, typeof allArrangements>();
+      for (const arr of allArrangements) {
+        const existing = arrBySongId.get(arr.songId) ?? [];
+        existing.push(arr);
+        arrBySongId.set(arr.songId, existing);
+      }
+
+      // Count songs with/without arrangements and with/without content
+      let songsWithArrangements = 0;
+      let songsWithContent = 0;
+      let songsWithEmptyContent = 0;
+      let songsWithNoArrangements = 0;
+
+      for (const song of localSongs) {
+        const arrs = arrBySongId.get(song.id);
+        if (arrs && arrs.length > 0) {
+          songsWithArrangements++;
+          const content = arrs[0]?.content;
+          if (content && content.length > 0) {
+            songsWithContent++;
+          } else {
+            songsWithEmptyContent++;
+          }
+        } else {
+          songsWithNoArrangements++;
+        }
+      }
+
+      console.log(`[Sync] Arrangement analysis:`);
+      console.log(`[Sync]   Songs with arrangements: ${songsWithArrangements}`);
+      console.log(`[Sync]   Songs with non-empty content: ${songsWithContent}`);
+      console.log(`[Sync]   Songs with empty content: ${songsWithEmptyContent}`);
+      console.log(`[Sync]   Songs with no arrangements: ${songsWithNoArrangements}`);
+
+      // Sample one song with content and one without
+      if (songsWithContent > 0) {
+        const sampleSong = localSongs.find(s => {
+          const arrs = arrBySongId.get(s.id);
+          return arrs && arrs[0]?.content && arrs[0].content.length > 0;
+        });
+        if (sampleSong) {
+          const arrs = arrBySongId.get(sampleSong.id)!;
+          const contentPreview = arrs[0].content.substring(0, 100);
+          console.log(`[Sync]   Sample with content: "${sampleSong.title}" - "${contentPreview}..."`);
+        }
+      }
+      if (songsWithEmptyContent > 0) {
+        const sampleSong = localSongs.find(s => {
+          const arrs = arrBySongId.get(s.id);
+          return arrs && arrs.length > 0 && (!arrs[0]?.content || arrs[0].content.length === 0);
+        });
+        if (sampleSong) {
+          const arrs = arrBySongId.get(sampleSong.id)!;
+          console.log(`[Sync]   Sample with empty content: "${sampleSong.title}" - content type: ${typeof arrs[0]?.content}, value: "${arrs[0]?.content}"`);
+        }
       }
     }
 
@@ -527,10 +578,20 @@ async function pushSongToCloud(userId: string, song: Song): Promise<void> {
   const arrangements = await db.arrangements.where('songId').equals(song.id).toArray();
   const content = arrangements[0]?.content ?? null;
 
-  // Debug: log if we're missing arrangement content
-  if (!content) {
-    console.warn(`[Sync] No arrangement content for song "${song.title}" (${song.id}), found ${arrangements.length} arrangements`);
+  // Debug: log arrangement details
+  const contentLen = content?.length ?? 0;
+  if (arrangements.length > 0) {
+    if (contentLen === 0) {
+      console.warn(`[Sync] Song "${song.title}" has ${arrangements.length} arrangement(s) but content is empty`);
+      console.warn(`[Sync]   Arrangement keys: ${Object.keys(arrangements[0]).join(', ')}`);
+      console.warn(`[Sync]   Content value: "${arrangements[0]?.content}" (type: ${typeof arrangements[0]?.content})`);
+    }
+  } else {
+    console.warn(`[Sync] No arrangements found for song "${song.title}" (${song.id})`);
   }
+
+  // Log what we're about to send
+  console.log(`[Sync] Pushing "${song.title}" with content: ${contentLen} chars`);
 
   const { error } = await saveSongToSupabase(userId, song, content ?? undefined);
   if (error) {

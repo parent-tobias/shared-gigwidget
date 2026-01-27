@@ -111,9 +111,19 @@ export async function saveSongToSupabase(
   content?: string
 ): Promise<{ data?: SupabaseSong; error?: unknown }> {
   try {
+    const payload = toSupabaseSong(userId, song, content);
+
+    // Debug: Log what we're sending
+    const contentLen = payload.content?.length ?? 0;
+    if (contentLen > 0) {
+      console.log(`[Supabase] Saving "${song.title}" with content (${contentLen} chars)`);
+    } else {
+      console.warn(`[Supabase] Saving "${song.title}" with NO content. Input content param: ${content?.length ?? 'undefined'} chars`);
+    }
+
     const { data, error } = await supabase
       .from('songs')
-      .upsert(toSupabaseSong(userId, song, content), {
+      .upsert(payload, {
         onConflict: 'id',
       })
       .select()
@@ -124,7 +134,11 @@ export async function saveSongToSupabase(
       return { error };
     }
 
-    console.log('Song saved to Supabase:', data);
+    // Verify content was saved
+    if (contentLen > 0 && !data.content) {
+      console.error(`[Supabase] BUG: Content was sent but not saved! Sent ${contentLen} chars, got back null`);
+    }
+
     return { data };
   } catch (err) {
     console.error('Exception saving song:', err);
