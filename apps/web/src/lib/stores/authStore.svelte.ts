@@ -120,6 +120,36 @@ export async function sendMagicLink(email: string): Promise<{ error: string | nu
 }
 
 /**
+ * Sign in with Google OAuth
+ */
+export async function signInWithGoogle(): Promise<{ error: string | null }> {
+  authLoading = true;
+  authError = null;
+
+  try {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: browser ? `${window.location.origin}/auth/confirm` : undefined,
+      },
+    });
+
+    if (error) {
+      authError = error.message;
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to sign in with Google';
+    authError = message;
+    return { error: message };
+  } finally {
+    authLoading = false;
+  }
+}
+
+/**
  * Sign out the current user
  */
 export async function signOut(): Promise<void> {
