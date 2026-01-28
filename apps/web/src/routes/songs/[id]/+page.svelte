@@ -19,6 +19,7 @@
   let chordListPosition = $state<'top' | 'right' | 'bottom'>('top');
   let theme = $state<'light' | 'dark' | 'auto'>('auto');
   let compactView = $state(false);
+  let defaultInstrument = $state<string>('');
 
   // Renderer view controls
   let isMaximized = $state(false);
@@ -214,10 +215,8 @@
           if (prefs.chordListPosition) chordListPosition = prefs.chordListPosition;
           if (prefs.theme) theme = prefs.theme;
           if (prefs.compactView) compactView = prefs.compactView;
-          
-          // Apply theme to document
-          applyTheme(prefs.theme || 'auto');
-          
+          if (prefs.defaultInstrument) defaultInstrument = prefs.defaultInstrument;
+
           // Apply compact view class to document
           if (prefs.compactView) {
             document.documentElement.classList.add('compact-view');
@@ -226,19 +225,6 @@
       }
     } catch (err) {
       console.error('Failed to load preferences:', err);
-    }
-  }
-
-  function applyTheme(themeValue: 'light' | 'dark' | 'auto') {
-    const root = document.documentElement;
-    if (themeValue === 'auto') {
-      root.classList.remove('light-theme', 'dark-theme');
-    } else if (themeValue === 'light') {
-      root.classList.remove('dark-theme');
-      root.classList.add('light-theme');
-    } else if (themeValue === 'dark') {
-      root.classList.remove('light-theme');
-      root.classList.add('dark-theme');
     }
   }
 
@@ -596,6 +582,7 @@
                 content={displayContent}
                 theme={rendererTheme === 'dark' ? 'chordpro-dark' : 'chordpro-light'}
                 chord-position={chordListPosition}
+                instrument={defaultInstrument || undefined}
               ></chordpro-renderer>
             </div>
           </div>

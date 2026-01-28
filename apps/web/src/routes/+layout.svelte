@@ -6,6 +6,7 @@
   import { getSessionStore } from '$lib/stores/sessionStore.svelte';
   import { initializeAuth } from '$lib/stores/authStore.svelte';
   import { initializeNavigation } from '$lib/stores/navigationStore.svelte';
+  import { initializeTheme } from '$lib/stores/themeStore.svelte';
 
   let { children } = $props();
 
@@ -38,6 +39,9 @@
 
         // Initialize navigation state
         initializeNavigation();
+
+        // Initialize theme from preferences
+        await initializeTheme();
 
         initialized = true;
       } catch (err) {

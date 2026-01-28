@@ -5,6 +5,7 @@
     isAuthenticated,
   } from '$lib/stores/authStore.svelte';
   import { syncPreferencesToCloud } from '$lib/stores/syncStore.svelte';
+  import { setTheme } from '$lib/stores/themeStore.svelte';
 
   // Built-in instruments that the chordpro-renderer supports
   const RENDERER_INSTRUMENTS = [
@@ -88,6 +89,9 @@
           ...prefsData,
         });
       }
+
+      // Apply theme immediately
+      await setTheme(theme);
 
       // Sync to cloud if authenticated
       if (isAuthenticated()) {

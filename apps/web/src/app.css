@@ -40,6 +40,44 @@
   --header-height: 56px;
 }
 
+/* Light theme */
+:root[data-theme="light"] {
+  --color-bg: #f5f5f7;
+  --color-bg-secondary: #ffffff;
+  --color-surface: #e8e8ed;
+  --color-primary: #d63850;
+  --color-secondary: #6b4d9e;
+  --color-text: #1a1a1a;
+  --color-text-muted: #6b6b6b;
+  --color-border: #d1d1d6;
+}
+
+/* Dark theme (explicit, for when user forces dark) */
+:root[data-theme="dark"] {
+  --color-bg: #1a1a2e;
+  --color-bg-secondary: #16213e;
+  --color-surface: #0f3460;
+  --color-primary: #e94560;
+  --color-secondary: #533483;
+  --color-text: #eaeaea;
+  --color-text-muted: #a0a0a0;
+  --color-border: #2a2a4e;
+}
+
+/* Auto theme - respect system preference */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --color-bg: #f5f5f7;
+    --color-bg-secondary: #ffffff;
+    --color-surface: #e8e8ed;
+    --color-primary: #d63850;
+    --color-secondary: #6b4d9e;
+    --color-text: #1a1a1a;
+    --color-text-muted: #6b6b6b;
+    --color-border: #d1d1d6;
+  }
+}
+
 /* Reset */
 *,
 *::before,
