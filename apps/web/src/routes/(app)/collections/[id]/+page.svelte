@@ -12,6 +12,7 @@
   let showAddModal = $state(false);
   let draggedIndex = $state<number | null>(null);
   let songSearchQuery = $state('');
+  let togglingVisibility = $state(false);
 
   const setId = $derived($page.params.id);
 
@@ -129,6 +130,23 @@
     draggedIndex = null;
   }
 
+  async function toggleVisibility() {
+    if (!set || togglingVisibility) return;
+
+    togglingVisibility = true;
+    const newVisibility = set.visibility === 'public' ? 'private' : 'public';
+
+    try {
+      const { SongSetRepository } = await import('@gigwidget/db');
+      await SongSetRepository.update(set.id, { visibility: newVisibility });
+      set = { ...set, visibility: newVisibility };
+    } catch (err) {
+      console.error('Failed to update visibility:', err);
+    } finally {
+      togglingVisibility = false;
+    }
+  }
+
   // Limit display to prevent rendering 3000+ items
   const MAX_DISPLAY = 50;
 
@@ -180,12 +198,37 @@
           {#if set.isSetlist}
             <span class="setlist-badge">Setlist</span>
           {/if}
+          {#if set.visibility === 'public'}
+            <span class="public-badge">Public</span>
+          {/if}
         </div>
         {#if set.description}
           <p class="set-description">{set.description}</p>
         {/if}
       </div>
-      <button class="btn btn-primary" onclick={() => (showAddModal = true)}>+ Add Songs</button>
+      <div class="header-actions">
+        <button
+          class="btn btn-icon"
+          class:active={set.visibility === 'public'}
+          onclick={toggleVisibility}
+          disabled={togglingVisibility}
+          title={set.visibility === 'public' ? 'Make private' : 'Share publicly'}
+        >
+          {#if set.visibility === 'public'}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+          {:else}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          {/if}
+        </button>
+        <button class="btn btn-primary" onclick={() => (showAddModal = true)}>+ Add Songs</button>
+      </div>
     </header>
 
     <div class="collection-content">
@@ -378,6 +421,56 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  .public-badge {
+    display: inline-block;
+    background-color: rgba(74, 222, 128, 0.2);
+    color: #4ade80;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
+  }
+
+  .btn-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .btn-icon:hover {
+    border-color: var(--color-primary);
+    color: var(--color-text);
+  }
+
+  .btn-icon.active {
+    background-color: rgba(74, 222, 128, 0.1);
+    border-color: rgba(74, 222, 128, 0.5);
+    color: #4ade80;
+  }
+
+  .btn-icon:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .set-description {

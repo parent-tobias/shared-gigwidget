@@ -11,6 +11,7 @@
   let newSetName = $state('');
   let newSetDescription = $state('');
   let newSetIsSetlist = $state(false);
+  let newSetIsPublic = $state(false);
   let creating = $state(false);
 
   $effect(() => {
@@ -55,7 +56,7 @@
         description: newSetDescription.trim() || undefined,
         songIds: [],
         isSetlist: newSetIsSetlist,
-        visibility: 'private', // Collections are private by default
+        visibility: newSetIsPublic ? 'public' : 'private',
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -67,6 +68,7 @@
       newSetName = '';
       newSetDescription = '';
       newSetIsSetlist = false;
+      newSetIsPublic = false;
       showCreateModal = false;
     } catch (err) {
       console.error('Failed to create collection:', err);
@@ -143,6 +145,9 @@
                 {#if set.isSetlist}
                   <span class="setlist-badge">Setlist</span>
                 {/if}
+                {#if set.visibility === 'public'}
+                  <span class="public-badge">Public</span>
+                {/if}
               </div>
               <span class="collection-meta">
                 {set.songIds.length} song{set.songIds.length !== 1 ? 's' : ''} · Updated {formatDate(set.updatedAt)}
@@ -199,6 +204,16 @@
             <span class="checkbox-text">
               <strong>Setlist</strong>
               <span class="checkbox-hint">Ordered for performance, with drag-to-reorder</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="form-group checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" bind:checked={newSetIsPublic} disabled={creating} />
+            <span class="checkbox-text">
+              <strong>Public</strong>
+              <span class="checkbox-hint">Others can find and add this collection to their library</span>
             </span>
           </label>
         </div>
@@ -325,6 +340,19 @@
     padding: 2px 8px;
     background-color: var(--color-primary);
     color: white;
+    border-radius: var(--radius-sm);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+  }
+
+  .public-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background-color: rgba(74, 222, 128, 0.2);
+    color: #4ade80;
     border-radius: var(--radius-sm);
     font-size: 0.6875rem;
     font-weight: 600;
