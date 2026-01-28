@@ -542,6 +542,7 @@ function setupRealtimeSubscription(userId: string): void {
 
 /**
  * Pull a cloud song to local IndexedDB.
+ * Creates both the song and arrangement records.
  */
 async function pullSongToLocal(
   db: Awaited<ReturnType<typeof import('@gigwidget/db').getDatabase>>,
@@ -552,7 +553,7 @@ async function pullSongToLocal(
   const existingSong = await db.songs.get(cloudSong.id);
 
   // Use put() instead of add() to handle race conditions gracefully
-  const { generateId } = await import('@gigwidget/core');
+  const { generateId, createArrangement } = await import('@gigwidget/core');
   const newSong: Song = {
     id: cloudSong.id,
     ownerId: localUserId,
@@ -569,6 +570,33 @@ async function pullSongToLocal(
     yjsDocId: existingSong?.yjsDocId ?? generateId(), // Keep existing or generate new
   };
   await db.songs.put(newSong);
+
+  // Create or update arrangement with content from cloud
+  // This matches how addToLibrary works in the browse page
+  if (cloudSong.content !== undefined) {
+    const existingArrangement = await db.arrangements.where('songId').equals(cloudSong.id).first();
+
+    if (existingArrangement) {
+      // Update existing arrangement's content if cloud is newer
+      const cloudUpdated = new Date(cloudSong.updated_at);
+      const localUpdated = new Date(existingArrangement.updatedAt);
+
+      if (cloudUpdated > localUpdated) {
+        console.log(`[Sync] Updating arrangement for "${cloudSong.title}" with ${cloudSong.content?.length ?? 0} chars`);
+        await db.arrangements.update(existingArrangement.id, {
+          content: cloudSong.content ?? '',
+          updatedAt: new Date(),
+        });
+      }
+    } else {
+      // Create new arrangement
+      console.log(`[Sync] Creating arrangement for "${cloudSong.title}" with ${cloudSong.content?.length ?? 0} chars`);
+      const arrangement = createArrangement(cloudSong.id, 'guitar', {
+        content: cloudSong.content ?? '',
+      });
+      await db.arrangements.put(arrangement);
+    }
+  }
 }
 
 /**
