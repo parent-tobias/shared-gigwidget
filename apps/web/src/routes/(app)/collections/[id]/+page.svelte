@@ -1,7 +1,6 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
   import type { SongSet, Song } from '@gigwidget/core';
 
   let set = $state<SongSet | null>(null);
@@ -29,7 +28,7 @@
 
       const foundSet = await SongSetRepository.getById(setId);
       if (!foundSet) {
-        error = 'Set not found';
+        error = 'Collection not found';
         loading = false;
         return;
       }
@@ -47,8 +46,8 @@
         .map((id) => allSongs.find((s) => s.id === id))
         .filter((s): s is Song => s !== undefined);
     } catch (err) {
-      console.error('Failed to load set:', err);
-      error = err instanceof Error ? err.message : 'Failed to load set';
+      console.error('Failed to load collection:', err);
+      error = err instanceof Error ? err.message : 'Failed to load collection';
     } finally {
       loading = false;
     }
@@ -157,22 +156,31 @@
   <title>{set?.name ?? 'Loading...'} - Gigwidget</title>
 </svelte:head>
 
-<main class="container">
+<div class="collection-detail">
   {#if loading}
-    <div class="loading">Loading set...</div>
+    <div class="loading-state">
+      <p>Loading collection...</p>
+    </div>
   {:else if error}
-    <div class="error-container">
+    <div class="error-state">
       <p>{error}</p>
-      <a href="/sets" class="btn btn-secondary">Back to Sets</a>
+      <a href="/collections" class="btn btn-secondary">Back to Collections</a>
     </div>
   {:else if set}
     <header class="page-header">
       <div class="header-left">
-        <a href="/sets" class="back-link">← Back to Sets</a>
-        <h1>{set.name}</h1>
-        {#if set.isSetlist}
-          <span class="setlist-badge">Setlist</span>
-        {/if}
+        <a href="/collections" class="back-link">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+          Collections
+        </a>
+        <div class="title-row">
+          <h1>{set.name}</h1>
+          {#if set.isSetlist}
+            <span class="setlist-badge">Setlist</span>
+          {/if}
+        </div>
         {#if set.description}
           <p class="set-description">{set.description}</p>
         {/if}
@@ -180,66 +188,75 @@
       <button class="btn btn-primary" onclick={() => (showAddModal = true)}>+ Add Songs</button>
     </header>
 
-    {#if setSongs.length === 0}
-      <div class="empty-state">
-        <p>No songs in this set yet.</p>
-        <button class="btn btn-primary" onclick={() => (showAddModal = true)}>Add Songs</button>
-      </div>
-    {:else}
-      <div class="song-list-header">
-        <span class="song-count">{setSongs.length} song{setSongs.length !== 1 ? 's' : ''}</span>
-        {#if set.isSetlist}
-          <span class="drag-hint">Drag to reorder</span>
-        {/if}
-      </div>
+    <div class="collection-content">
+      {#if setSongs.length === 0}
+        <div class="empty-state">
+          <p>No songs in this {set.isSetlist ? 'setlist' : 'collection'} yet.</p>
+          <button class="btn btn-primary" onclick={() => (showAddModal = true)}>Add Songs</button>
+        </div>
+      {:else}
+        <div class="song-list-header">
+          <span class="song-count">{setSongs.length} song{setSongs.length !== 1 ? 's' : ''}</span>
+          {#if set.isSetlist}
+            <span class="drag-hint">Drag to reorder</span>
+          {/if}
+        </div>
 
-      <ul class="song-list">
-        {#each setSongs as song, index (song.id)}
-          <li
-            class="song-item"
-            class:dragging={draggedIndex === index}
-            draggable={set.isSetlist}
-            ondragstart={() => handleDragStart(index)}
-            ondragover={(e) => handleDragOver(e, index)}
-            ondrop={(e) => handleDrop(e, index)}
-            ondragend={handleDragEnd}
-          >
-            {#if set.isSetlist}
-              <span class="song-number">{index + 1}</span>
-            {/if}
-            <a href="/songs/{song.id}" class="song-link">
-              <div class="song-info">
-                <span class="song-title">{song.title}</span>
-                {#if song.artist}
-                  <span class="song-artist">{song.artist}</span>
-                {/if}
-              </div>
-              <div class="song-meta">
-                {#if song.key}
-                  <span class="song-key">{song.key}</span>
-                {/if}
-              </div>
-            </a>
-            <button
-              class="btn-remove"
-              onclick={() => removeSongFromSet(song.id)}
-              title="Remove from set"
+        <ul class="song-list">
+          {#each setSongs as song, index (song.id)}
+            <li
+              class="song-item"
+              class:dragging={draggedIndex === index}
+              draggable={set.isSetlist}
+              ondragstart={() => handleDragStart(index)}
+              ondragover={(e) => handleDragOver(e, index)}
+              ondrop={(e) => handleDrop(e, index)}
+              ondragend={handleDragEnd}
             >
-              ×
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {/if}
+              {#if set.isSetlist}
+                <span class="song-number">{index + 1}</span>
+              {/if}
+              <a href="/library/{song.id}" class="song-link">
+                <div class="song-info">
+                  <span class="song-title">{song.title}</span>
+                  {#if song.artist}
+                    <span class="song-artist">{song.artist}</span>
+                  {/if}
+                </div>
+                <div class="song-meta">
+                  {#if song.key}
+                    <span class="song-key">{song.key}</span>
+                  {/if}
+                </div>
+              </a>
+              <button
+                class="btn-remove"
+                onclick={() => removeSongFromSet(song.id)}
+                title="Remove from {set.isSetlist ? 'setlist' : 'collection'}"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
   {/if}
-</main>
+</div>
 
 {#if showAddModal}
   <div class="modal-overlay" onclick={() => { showAddModal = false; songSearchQuery = ''; }}>
     <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <h2>Add Songs to Set</h2>
+      <h2>Add Songs</h2>
 
       <div class="search-box">
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.35-4.35" />
+        </svg>
         <input
           type="text"
           bind:value={songSearchQuery}
@@ -247,7 +264,12 @@
           class="search-input"
         />
         {#if songSearchQuery}
-          <button class="clear-search" onclick={() => songSearchQuery = ''}>×</button>
+          <button class="clear-search" onclick={() => songSearchQuery = ''}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
         {/if}
       </div>
 
@@ -266,7 +288,7 @@
         {#if songSearchQuery.trim()}
           <p class="empty-message">No songs match "{songSearchQuery}"</p>
         {:else}
-          <p class="empty-message">All your songs are already in this set!</p>
+          <p class="empty-message">All your songs are already in this {set?.isSetlist ? 'setlist' : 'collection'}!</p>
         {/if}
       {:else}
         <ul class="available-songs">
@@ -297,75 +319,90 @@
 {/if}
 
 <style>
+  .collection-detail {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
   .page-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    padding: var(--spacing-lg) 0;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
     border-bottom: 1px solid var(--color-border);
+    background-color: var(--color-bg);
+    flex-shrink: 0;
   }
 
   .header-left {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
+    min-width: 0;
   }
 
   .back-link {
-    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: 0.75rem;
     color: var(--color-text-muted);
+    text-decoration: none;
   }
 
   .back-link:hover {
     color: var(--color-primary);
   }
 
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
+  .title-row h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
   .setlist-badge {
     display: inline-block;
     background-color: var(--color-primary);
     color: white;
-    padding: var(--spacing-xs) var(--spacing-sm);
+    padding: 2px 8px;
     border-radius: var(--radius-sm);
-    font-size: 0.7rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     text-transform: uppercase;
-    width: fit-content;
+    letter-spacing: 0.05em;
   }
 
   .set-description {
-    color: var(--color-text-muted);
     font-size: 0.875rem;
+    color: var(--color-text-muted);
     margin: 0;
   }
 
-  .loading {
-    text-align: center;
-    padding: var(--spacing-xl);
-    color: var(--color-text-muted);
+  .collection-content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--spacing-md);
   }
 
-  .error-container {
-    text-align: center;
-    padding: var(--spacing-xl);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--spacing-md);
-  }
-
+  .loading-state,
+  .error-state,
   .empty-state {
-    text-align: center;
-    padding: var(--spacing-xl);
-    background-color: var(--color-bg-secondary);
-    border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: var(--spacing-md);
-    margin-top: var(--spacing-xl);
-  }
-
-  .empty-state p {
+    padding: var(--spacing-xl);
+    text-align: center;
     color: var(--color-text-muted);
   }
 
@@ -373,11 +410,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: var(--spacing-md) 0;
+    margin-bottom: var(--spacing-md);
   }
 
   .song-count {
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     color: var(--color-text-muted);
   }
 
@@ -389,23 +426,26 @@
 
   .song-list {
     list-style: none;
+    padding: 0;
+    margin: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-sm);
+    gap: var(--spacing-xs);
   }
 
   .song-item {
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
-    padding: var(--spacing-md);
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
     background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    transition: background-color var(--transition-fast), opacity var(--transition-fast);
+    transition: all var(--transition-fast);
   }
 
   .song-item:hover {
-    background-color: var(--color-surface);
+    border-color: var(--color-primary);
   }
 
   .song-item.dragging {
@@ -424,12 +464,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
+    width: 1.75rem;
+    height: 1.75rem;
     background-color: var(--color-surface);
     border-radius: var(--radius-sm);
     font-weight: 600;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     flex-shrink: 0;
   }
 
@@ -438,6 +478,7 @@
     justify-content: space-between;
     align-items: center;
     flex: 1;
+    min-width: 0;
     color: inherit;
     text-decoration: none;
   }
@@ -445,39 +486,53 @@
   .song-info {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xs);
+    gap: 2px;
+    min-width: 0;
   }
 
   .song-title {
     font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .song-artist {
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     color: var(--color-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .song-meta {
+    flex-shrink: 0;
   }
 
   .song-key {
-    background-color: var(--color-secondary);
-    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: var(--color-surface);
+    padding: 2px 8px;
     border-radius: var(--radius-sm);
     font-size: 0.75rem;
-    font-weight: 500;
   }
 
   .btn-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: none;
     border: none;
     color: var(--color-text-muted);
-    font-size: 1.5rem;
     cursor: pointer;
     padding: var(--spacing-xs);
-    line-height: 1;
-    transition: color var(--transition-fast);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
   }
 
   .btn-remove:hover {
     color: var(--color-primary);
+    background-color: var(--color-surface);
   }
 
   /* Modal */
@@ -504,6 +559,7 @@
 
   .modal h2 {
     margin: 0 0 var(--spacing-md);
+    font-size: 1.125rem;
   }
 
   .search-box {
@@ -511,13 +567,23 @@
     margin-bottom: var(--spacing-sm);
   }
 
+  .search-icon {
+    position: absolute;
+    left: var(--spacing-sm);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-text-muted);
+    pointer-events: none;
+  }
+
   .search-input {
     width: 100%;
     padding: var(--spacing-sm) var(--spacing-md);
+    padding-left: 2.25rem;
     padding-right: 2.5rem;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
     background-color: var(--color-bg-secondary);
     color: var(--color-text);
   }
@@ -532,13 +598,14 @@
     right: var(--spacing-sm);
     top: 50%;
     transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: none;
     border: none;
     color: var(--color-text-muted);
-    font-size: 1.25rem;
     cursor: pointer;
     padding: var(--spacing-xs);
-    line-height: 1;
   }
 
   .clear-search:hover {
@@ -574,9 +641,11 @@
 
   .available-songs {
     list-style: none;
+    padding: 0;
+    margin: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-sm);
+    gap: var(--spacing-xs);
     max-height: 300px;
     overflow-y: auto;
   }
@@ -585,19 +654,37 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: var(--spacing-md);
     padding: var(--spacing-sm);
     background-color: var(--color-bg-secondary);
     border-radius: var(--radius-md);
   }
 
+  .available-song-item .song-info {
+    min-width: 0;
+    flex: 1;
+  }
+
   .btn-sm {
     padding: var(--spacing-xs) var(--spacing-sm);
     font-size: 0.75rem;
+    flex-shrink: 0;
   }
 
   .modal-actions {
     display: flex;
     justify-content: flex-end;
     margin-top: var(--spacing-lg);
+  }
+
+  @media (max-width: 640px) {
+    .page-header {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .page-header .btn {
+      align-self: flex-start;
+    }
   }
 </style>
