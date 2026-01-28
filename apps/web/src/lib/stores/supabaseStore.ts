@@ -614,3 +614,168 @@ export async function deleteCustomInstrument(
     return { error: err };
   }
 }
+
+// ============================================================================
+// Song Sets / Collections Management
+// ============================================================================
+
+export interface SupabaseSongSet {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  parent_set_id: string | null;
+  song_ids: string[];
+  is_setlist: boolean;
+  visibility: Visibility;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Search public song sets/collections
+ */
+export async function searchPublicSongSets(
+  query: string,
+  options: { limit?: number; offset?: number } = {}
+): Promise<{ data?: SupabaseSongSet[]; error?: unknown; count?: number }> {
+  const { limit = 50, offset = 0 } = options;
+
+  try {
+    let queryBuilder = supabase
+      .from('song_sets')
+      .select('*', { count: 'exact' })
+      .eq('visibility', 'public');
+
+    if (query.trim()) {
+      queryBuilder = queryBuilder.or(`name.ilike.%${query}%,description.ilike.%${query}%`);
+    }
+
+    const { data, error, count } = await queryBuilder
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('Error searching public song sets:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseSongSet[], count: count ?? undefined };
+  } catch (err) {
+    console.error('Exception searching public song sets:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Get a public song set by ID with its songs
+ */
+export async function getPublicSongSet(
+  setId: string
+): Promise<{ data?: SupabaseSongSet & { songs: SupabaseSong[] }; error?: unknown }> {
+  try {
+    // Get the song set
+    const { data: set, error: setError } = await supabase
+      .from('song_sets')
+      .select('*')
+      .eq('id', setId)
+      .eq('visibility', 'public')
+      .single();
+
+    if (setError) {
+      console.error('Error getting public song set:', setError);
+      return { error: setError };
+    }
+
+    // Get the songs in this set
+    const songIds = (set as SupabaseSongSet).song_ids;
+    if (!songIds || songIds.length === 0) {
+      return { data: { ...(set as SupabaseSongSet), songs: [] } };
+    }
+
+    const { data: songs, error: songsError } = await supabase
+      .from('songs')
+      .select('*')
+      .in('id', songIds);
+
+    if (songsError) {
+      console.error('Error getting songs for set:', songsError);
+      return { error: songsError };
+    }
+
+    return { data: { ...(set as SupabaseSongSet), songs: (songs as SupabaseSong[]) ?? [] } };
+  } catch (err) {
+    console.error('Exception getting public song set:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Save a song set to Supabase
+ */
+export async function saveSongSetToSupabase(
+  userId: string,
+  set: {
+    id: string;
+    name: string;
+    description?: string;
+    parentSetId?: string;
+    songIds: string[];
+    isSetlist: boolean;
+    visibility: Visibility;
+  }
+): Promise<{ data?: SupabaseSongSet; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('song_sets')
+      .upsert({
+        id: set.id,
+        user_id: userId,
+        name: set.name,
+        description: set.description ?? null,
+        parent_set_id: set.parentSetId ?? null,
+        song_ids: set.songIds,
+        is_setlist: set.isSetlist,
+        visibility: set.visibility,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'id',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error saving song set to Supabase:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseSongSet };
+  } catch (err) {
+    console.error('Exception saving song set:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Delete a song set from Supabase
+ */
+export async function deleteSongSetFromSupabase(
+  setId: string
+): Promise<{ success?: boolean; error?: unknown }> {
+  try {
+    const { error } = await supabase
+      .from('song_sets')
+      .delete()
+      .eq('id', setId);
+
+    if (error) {
+      console.error('Error deleting song set from Supabase:', error);
+      return { error };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Exception deleting song set:', err);
+    return { error: err };
+  }
+}

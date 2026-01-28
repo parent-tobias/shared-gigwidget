@@ -55,6 +55,7 @@
         description: newSetDescription.trim() || undefined,
         songIds: [],
         isSetlist: newSetIsSetlist,
+        visibility: 'private', // Collections are private by default
         createdAt: new Date(),
         updatedAt: new Date(),
       };

@@ -360,6 +360,7 @@ export interface SongSet {
   parentSetId?: string; // For nested sets
   songIds: string[]; // Ordered list of song IDs
   isSetlist: boolean; // If true, order matters for performance
+  visibility: Visibility; // private, space, or public
   createdAt: Date;
   updatedAt: Date;
 }
