@@ -206,18 +206,23 @@
               updatedAt: new Date(),
             };
 
-            // For session songs, we need to fetch the content from the host
-            // For now, show a placeholder - full content sync will be added later
-            if (sessionSong.content) {
+            // Request content from host via WebRTC
+            console.log('[SongViewer] Requesting content from host for:', songId);
+            const content = await sessionStore.requestSongContent(songId);
+
+            if (content) {
+              console.log('[SongViewer] Received content for:', songId);
               arrangements = [{
                 id: `session-${sessionSong.id}`,
                 songId: sessionSong.id,
                 instrument: 'guitar',
-                content: sessionSong.content,
+                content,
                 version: 1,
                 createdAt: new Date(),
                 updatedAt: new Date(),
               }];
+            } else {
+              console.log('[SongViewer] No content received for:', songId);
             }
           }
         }

@@ -72,6 +72,11 @@ export class SessionManager extends Observable {
   private bootstrapSignaling: BootstrapSignaling | null = null;
   private avatarThumbnail: string | undefined;
 
+  // Song content sharing
+  private songContentMap: Y.Map<string> | null = null;
+  private contentRequests: Y.Map<number> | null = null;
+  private contentProvider: ((songId: string) => Promise<string | null>) | null = null;
+
   readonly user: User;
   private readonly signalingServers: string[];
   private readonly defaultExpiryMs: number;
@@ -432,6 +437,9 @@ export class SessionManager extends Observable {
   private setupWebRTCListeners(): void {
     if (!this.webrtcProvider) return;
 
+    // Initialize content sharing maps
+    this.initContentSharing();
+
     const awareness = this.webrtcProvider.awareness;
 
     // Set local user info on awareness
@@ -489,6 +497,124 @@ export class SessionManager extends Observable {
     });
 
     return participants;
+  }
+
+  // ============================================================================
+  // Song Content Sharing
+  // ============================================================================
+
+  /**
+   * Initialize song content sharing maps
+   */
+  private initContentSharing(): void {
+    if (!this.sessionDoc) return;
+
+    this.songContentMap = this.sessionDoc.getMap('songContent');
+    this.contentRequests = this.sessionDoc.getMap('contentRequests');
+
+    // Host: listen for content requests
+    if (this.isHosting && this.contentProvider) {
+      this.contentRequests.observe((event) => {
+        event.changes.keys.forEach((change, songId) => {
+          if (change.action === 'add' || change.action === 'update') {
+            this.handleContentRequest(songId);
+          }
+        });
+      });
+    }
+  }
+
+  /**
+   * Set the content provider function (host only)
+   * Called with songId, should return the song content or null
+   */
+  setContentProvider(provider: (songId: string) => Promise<string | null>): void {
+    this.contentProvider = provider;
+  }
+
+  /**
+   * Handle a content request from a joiner (host only)
+   */
+  private async handleContentRequest(songId: string): Promise<void> {
+    if (!this.contentProvider || !this.songContentMap) return;
+
+    // Check if we already have this content
+    if (this.songContentMap.has(songId)) {
+      console.log('[SessionManager] Content already available for:', songId);
+      return;
+    }
+
+    console.log('[SessionManager] Providing content for:', songId);
+    try {
+      const content = await this.contentProvider(songId);
+      if (content) {
+        this.songContentMap.set(songId, content);
+        console.log('[SessionManager] Content provided for:', songId);
+      }
+    } catch (err) {
+      console.error('[SessionManager] Failed to provide content for:', songId, err);
+    }
+  }
+
+  /**
+   * Request song content (joiner)
+   * Returns immediately if content is cached, otherwise triggers a request
+   */
+  async requestSongContent(songId: string): Promise<string | null> {
+    if (!this.songContentMap || !this.contentRequests) {
+      return null;
+    }
+
+    // Check if content is already available
+    const existing = this.songContentMap.get(songId);
+    if (existing) {
+      return existing;
+    }
+
+    // Request content from host
+    console.log('[SessionManager] Requesting content for:', songId);
+    this.contentRequests.set(songId, Date.now());
+
+    // Wait for content to arrive (with timeout)
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        resolve(null);
+      }, 10000); // 10 second timeout
+
+      const observer = (event: Y.YMapEvent<string>) => {
+        if (event.keysChanged.has(songId)) {
+          cleanup();
+          resolve(this.songContentMap?.get(songId) ?? null);
+        }
+      };
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        this.songContentMap?.unobserve(observer);
+      };
+
+      if (this.songContentMap) {
+        this.songContentMap.observe(observer);
+      } else {
+        cleanup();
+        resolve(null);
+      }
+    });
+  }
+
+  /**
+   * Get cached song content (sync, no request)
+   */
+  getCachedContent(songId: string): string | null {
+    return this.songContentMap?.get(songId) ?? null;
+  }
+
+  /**
+   * Check if content is available
+   */
+  hasContent(songId: string): boolean {
+    return this.songContentMap?.has(songId) ?? false;
   }
 
   // ============================================================================

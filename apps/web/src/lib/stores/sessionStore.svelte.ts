@@ -96,6 +96,18 @@ async function initSessionManager(user: User): Promise<void> {
       status = 'connected';
       qrPayload = payload;
       await generateQR(payload);
+
+      // Set up content provider for hosts
+      sessionManager.setContentProvider(async (songId: string) => {
+        try {
+          const { ArrangementRepository } = await import('@gigwidget/db');
+          const arrangements = await ArrangementRepository.getBySong(songId);
+          return arrangements[0]?.content ?? null;
+        } catch (err) {
+          console.error('[Session] Failed to load content for:', songId, err);
+          return null;
+        }
+      });
     });
 
     sessionManager.on('session-joined', ({ session, manifest }: any) => {
@@ -242,6 +254,37 @@ async function leaveSession(): Promise<void> {
 }
 
 /**
+ * Request song content from the host (for joiners)
+ * Returns the content if available, null otherwise
+ */
+async function requestSongContent(songId: string): Promise<string | null> {
+  if (!sessionManager || !isActive) {
+    return null;
+  }
+  return sessionManager.requestSongContent(songId);
+}
+
+/**
+ * Get cached song content (sync, no network request)
+ */
+function getCachedContent(songId: string): string | null {
+  if (!sessionManager) {
+    return null;
+  }
+  return sessionManager.getCachedContent(songId);
+}
+
+/**
+ * Check if song content is available
+ */
+function hasContent(songId: string): boolean {
+  if (!sessionManager) {
+    return false;
+  }
+  return sessionManager.hasContent(songId);
+}
+
+/**
  * Join a session using an existing WebRTC connection from bootstrap.
  * Used when the app was loaded via P2P bootstrap.
  */
@@ -338,6 +381,11 @@ export function getSessionStore() {
     toggleMinimized,
     expand,
     minimize,
+
+    // Content sharing
+    requestSongContent,
+    getCachedContent,
+    hasContent,
 
     // Bootstrap support
     joinWithBootstrapContext,
