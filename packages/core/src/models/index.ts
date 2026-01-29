@@ -228,6 +228,14 @@ export interface SongManifestEntry {
   title: string;
   artist?: string;
   instruments: Instrument[];
+  /** Optional song content for session sharing */
+  content?: string;
+  /** Optional key for session sharing */
+  key?: MusicalKey;
+  /** Optional tempo for session sharing */
+  tempo?: number;
+  /** Optional tags for session sharing */
+  tags?: string[];
 }
 
 // ============================================================================

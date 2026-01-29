@@ -168,7 +168,8 @@ async function startSession(
   songs: Song[],
   options: {
     shareAll?: boolean;
-    selectedSongIds?: string[];
+    collectionId?: string;
+    collectionName?: string;
     password?: string;
   } = {}
 ): Promise<void> {
@@ -182,21 +183,23 @@ async function startSession(
   status = 'connecting';
 
   try {
-    const songsToShare = options.shareAll !== false
-      ? songs
-      : songs.filter((s) => options.selectedSongIds?.includes(s.id));
-
-    const manifest: SongManifestEntry[] = songsToShare.map((s) => ({
+    // Songs are passed in already filtered by the caller
+    // Keep manifest lightweight for QR codes - content is exchanged over WebRTC
+    const manifest: SongManifestEntry[] = songs.map((s) => ({
       id: s.id,
       title: s.title,
       artist: s.artist,
-      instruments: [], // TODO: Extract from song arrangements
+      key: s.key,
+      tempo: s.tempo,
+      tags: s.tags,
+      instruments: [],
     }));
 
     await sessionManager.createSession(manifest, {
       type: 'webrtc',
-      libraryScope: options.shareAll !== false ? 'full' : 'selected',
-      selectedSongIds: options.selectedSongIds,
+      libraryScope: options.shareAll !== false ? 'full' : 'collection',
+      collectionId: options.collectionId,
+      collectionName: options.collectionName,
       password: options.password || undefined,
     });
   } catch (err) {

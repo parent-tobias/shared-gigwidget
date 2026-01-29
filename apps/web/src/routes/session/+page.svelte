@@ -1,6 +1,6 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import type { User, Song, QRSessionPayload } from '@gigwidget/core';
+  import type { User, Song, QRSessionPayload, SongSet } from '@gigwidget/core';
   import { hasPermission } from '@gigwidget/core';
   import { getSessionStore } from '$lib/stores/sessionStore.svelte';
 
@@ -8,6 +8,7 @@
 
   let user = $state<User | null>(null);
   let songs = $state<Song[]>([]);
+  let collections = $state<SongSet[]>([]);
   let loading = $state(true);
   let hasLoaded = false;
 
@@ -23,10 +24,18 @@
 
   // Host modal
   let showHostModal = $state(false);
-  let selectedSongIds = $state<string[]>([]);
+  let selectedCollectionId = $state<string>('');
   let shareAll = $state(true);
   let sessionPassword = $state('');
   let creating = $state(false);
+
+  // Derived: songs in selected collection
+  const selectedCollection = $derived(collections.find(c => c.id === selectedCollectionId));
+  const songsInCollection = $derived(
+    selectedCollection
+      ? songs.filter(s => selectedCollection.songIds.includes(s.id))
+      : []
+  );
 
   $effect(() => {
     if (!browser || hasLoaded) return;
@@ -43,6 +52,7 @@
       if (users.length > 0) {
         user = users[0];
         songs = await db.songs.where({ ownerId: user.id }).toArray();
+        collections = await db.songSets.where({ userId: user.id }).toArray();
         canHost = hasPermission(user, 'create_sessions');
         canJoin = hasPermission(user, 'join_sessions');
       }
@@ -58,9 +68,17 @@
 
     creating = true;
     try {
-      await session.startSession(user, songs, {
+      // Determine which songs to share
+      const songsToShare = shareAll
+        ? songs
+        : selectedCollection
+          ? songsInCollection
+          : [];
+
+      await session.startSession(user, songsToShare, {
         shareAll,
-        selectedSongIds: shareAll ? undefined : selectedSongIds,
+        collectionId: shareAll ? undefined : selectedCollectionId,
+        collectionName: shareAll ? undefined : selectedCollection?.name,
         password: sessionPassword || undefined,
       });
       showHostModal = false;
@@ -129,14 +147,6 @@
     }
   }
 
-  function toggleSongSelection(songId: string) {
-    if (selectedSongIds.includes(songId)) {
-      selectedSongIds = selectedSongIds.filter((id) => id !== songId);
-    } else {
-      selectedSongIds = [...selectedSongIds, songId];
-    }
-  }
-
   async function copySessionCode() {
     if (!session.qrPayload) return;
 
@@ -199,10 +209,12 @@
           <ul class="song-list">
             {#each session.qrPayload.libraryManifest as song (song.id)}
               <li class="song-item">
-                <span class="song-title">{song.title}</span>
-                {#if song.artist}
-                  <span class="song-artist">{song.artist}</span>
-                {/if}
+                <a href="/songs/{song.id}" class="song-link">
+                  <span class="song-title">{song.title}</span>
+                  {#if song.artist}
+                    <span class="song-artist">{song.artist}</span>
+                  {/if}
+                </a>
               </li>
             {/each}
           </ul>
@@ -287,21 +299,39 @@
 
       {#if !shareAll}
         <div class="form-group">
-          <label>Select songs to share:</label>
-          <div class="song-selector">
-            {#each songs as song (song.id)}
-              <label class="song-checkbox">
-                <input
-                  type="checkbox"
-                  checked={selectedSongIds.includes(song.id)}
-                  onchange={() => toggleSongSelection(song.id)}
-                  disabled={creating}
-                />
-                <span>{song.title}</span>
-              </label>
-            {/each}
-          </div>
+          <label for="collection">Select a collection to share:</label>
+          {#if collections.length === 0}
+            <p class="no-collections">No collections found. Create a collection first to share specific songs.</p>
+          {:else}
+            <select
+              id="collection"
+              bind:value={selectedCollectionId}
+              disabled={creating}
+            >
+              <option value="">Choose a collection...</option>
+              {#each collections as collection (collection.id)}
+                <option value={collection.id}>
+                  {collection.name} ({collection.songIds.length} songs)
+                </option>
+              {/each}
+            </select>
+          {/if}
         </div>
+
+        {#if selectedCollection}
+          <div class="collection-preview">
+            <h4>{selectedCollection.name}</h4>
+            <p class="collection-count">{songsInCollection.length} songs will be shared</p>
+            <ul class="preview-songs">
+              {#each songsInCollection.slice(0, 5) as song (song.id)}
+                <li>{song.title}{song.artist ? ` - ${song.artist}` : ''}</li>
+              {/each}
+              {#if songsInCollection.length > 5}
+                <li class="more">...and {songsInCollection.length - 5} more</li>
+              {/if}
+            </ul>
+          </div>
+        {/if}
       {/if}
 
       <div class="form-group">
@@ -322,7 +352,7 @@
         <button
           class="btn btn-primary"
           onclick={startHosting}
-          disabled={creating || (!shareAll && selectedSongIds.length === 0)}
+          disabled={creating || (!shareAll && !selectedCollectionId)}
         >
           {creating ? 'Starting...' : 'Start Session'}
         </button>
@@ -557,11 +587,21 @@
   }
 
   .song-item {
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-sm);
+    transition: background-color var(--transition-fast);
+  }
+
+  .song-item:hover {
+    background-color: var(--color-surface);
+  }
+
+  .song-link {
     display: flex;
     flex-direction: column;
     padding: var(--spacing-sm);
-    background-color: var(--color-bg-secondary);
-    border-radius: var(--radius-sm);
+    text-decoration: none;
+    color: inherit;
   }
 
   .song-title {
@@ -670,6 +710,56 @@
 
   .song-checkbox input {
     width: auto;
+  }
+
+  .no-collections {
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+    font-style: italic;
+    padding: var(--spacing-sm);
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-sm);
+  }
+
+  .collection-preview {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-md);
+    border-left: 3px solid var(--color-primary);
+  }
+
+  .collection-preview h4 {
+    margin: 0 0 var(--spacing-xs);
+    font-size: 0.875rem;
+  }
+
+  .collection-count {
+    margin: 0 0 var(--spacing-sm);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .preview-songs {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .preview-songs li {
+    padding: var(--spacing-xs) 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .preview-songs li:last-child {
+    border-bottom: none;
+  }
+
+  .preview-songs .more {
+    font-style: italic;
+    color: var(--color-text-muted);
   }
 
   .qr-reader {

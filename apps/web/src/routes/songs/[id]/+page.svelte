@@ -182,7 +182,47 @@
     try {
       const { SongRepository, ArrangementRepository } = await import('@gigwidget/db');
 
-      const foundSong = await SongRepository.getById(songId);
+      let foundSong = await SongRepository.getById(songId);
+
+      // If not found locally, check if it's a session song
+      if (!foundSong) {
+        const { getSessionStore } = await import('$lib/stores/sessionStore.svelte');
+        const sessionStore = getSessionStore();
+
+        if (sessionStore.isActive && sessionStore.qrPayload?.libraryManifest) {
+          const sessionSong = sessionStore.qrPayload.libraryManifest.find(s => s.id === songId);
+          if (sessionSong) {
+            // Create a temporary song object from session manifest
+            foundSong = {
+              id: sessionSong.id,
+              title: sessionSong.title,
+              artist: sessionSong.artist,
+              key: sessionSong.key,
+              tempo: sessionSong.tempo,
+              tags: sessionSong.tags || [],
+              ownerId: sessionStore.qrPayload.hostId,
+              visibility: 'private' as const,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+
+            // For session songs, we need to fetch the content from the host
+            // For now, show a placeholder - full content sync will be added later
+            if (sessionSong.content) {
+              arrangements = [{
+                id: `session-${sessionSong.id}`,
+                songId: sessionSong.id,
+                instrument: 'guitar',
+                content: sessionSong.content,
+                version: 1,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              }];
+            }
+          }
+        }
+      }
+
       if (!foundSong) {
         error = 'Song not found';
         loading = false;
@@ -190,7 +230,11 @@
       }
 
       song = foundSong;
-      arrangements = await ArrangementRepository.getBySong(songId);
+
+      // Only load arrangements from DB if we didn't get them from session
+      if (arrangements.length === 0) {
+        arrangements = await ArrangementRepository.getBySong(songId);
+      }
 
       if (arrangements.length > 0) {
         selectedArrangement = arrangements[0];
