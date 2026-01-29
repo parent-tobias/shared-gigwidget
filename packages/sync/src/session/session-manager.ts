@@ -77,6 +77,9 @@ export class SessionManager extends Observable {
   private contentRequests: Y.Map<number> | null = null;
   private contentProvider: ((songId: string) => Promise<string | null>) | null = null;
 
+  // Transpose state sharing (host controls, joiners observe)
+  private transposeStateMap: Y.Map<number> | null = null;
+
   readonly user: User;
   private readonly signalingServers: string[];
   private readonly defaultExpiryMs: number;
@@ -511,6 +514,7 @@ export class SessionManager extends Observable {
 
     this.songContentMap = this.sessionDoc.getMap('songContent');
     this.contentRequests = this.sessionDoc.getMap('contentRequests');
+    this.transposeStateMap = this.sessionDoc.getMap('transposeState');
 
     // Host: listen for content requests
     if (this.isHosting && this.contentProvider) {
@@ -615,6 +619,43 @@ export class SessionManager extends Observable {
    */
   hasContent(songId: string): boolean {
     return this.songContentMap?.has(songId) ?? false;
+  }
+
+  // ============================================================================
+  // Transpose State Sharing
+  // ============================================================================
+
+  /**
+   * Set transpose for a song (host only - syncs to all joiners)
+   */
+  setTranspose(songId: string, semitones: number): void {
+    if (!this.transposeStateMap || !this.isHosting) return;
+    this.transposeStateMap.set(songId, semitones);
+    console.log('[SessionManager] Transpose set for', songId, ':', semitones);
+  }
+
+  /**
+   * Get transpose for a song
+   */
+  getTranspose(songId: string): number {
+    return this.transposeStateMap?.get(songId) ?? 0;
+  }
+
+  /**
+   * Observe transpose changes for a song
+   * Returns a cleanup function to stop observing
+   */
+  observeTranspose(songId: string, callback: (semitones: number) => void): () => void {
+    if (!this.transposeStateMap) return () => {};
+
+    const observer = (event: Y.YMapEvent<number>) => {
+      if (event.keysChanged.has(songId)) {
+        callback(this.transposeStateMap?.get(songId) ?? 0);
+      }
+    };
+
+    this.transposeStateMap.observe(observer);
+    return () => this.transposeStateMap?.unobserve(observer);
   }
 
   // ============================================================================

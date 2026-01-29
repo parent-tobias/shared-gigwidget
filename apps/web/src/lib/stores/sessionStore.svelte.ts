@@ -285,6 +285,31 @@ function hasContent(songId: string): boolean {
 }
 
 /**
+ * Set transpose for a song (host only - syncs to all joiners)
+ */
+function setTranspose(songId: string, semitones: number): void {
+  if (!sessionManager || !isHosting) return;
+  sessionManager.setTranspose(songId, semitones);
+}
+
+/**
+ * Get transpose for a song
+ */
+function getTranspose(songId: string): number {
+  if (!sessionManager) return 0;
+  return sessionManager.getTranspose(songId);
+}
+
+/**
+ * Observe transpose changes for a song
+ * Returns a cleanup function
+ */
+function observeTranspose(songId: string, callback: (semitones: number) => void): () => void {
+  if (!sessionManager) return () => {};
+  return sessionManager.observeTranspose(songId, callback);
+}
+
+/**
  * Join a session using an existing WebRTC connection from bootstrap.
  * Used when the app was loaded via P2P bootstrap.
  */
@@ -386,6 +411,11 @@ export function getSessionStore() {
     requestSongContent,
     getCachedContent,
     hasContent,
+
+    // Transpose sharing
+    setTranspose,
+    getTranspose,
+    observeTranspose,
 
     // Bootstrap support
     joinWithBootstrapContext,

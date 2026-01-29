@@ -40,6 +40,11 @@
   let editVisibility = $state<Visibility>('private');
   let savingInfo = $state(false);
 
+  // Session song tracking
+  let isSessionSong = $state(false);
+  let sessionStore: ReturnType<typeof import('$lib/stores/sessionStore.svelte').getSessionStore> | null = null;
+  let transposeCleanup: (() => void) | null = null;
+
   // Sync state
   let syncStatus = $state<'synced' | 'syncing' | 'offline' | 'error'>('offline');
   let peerCount = $state(0);
@@ -89,9 +94,13 @@
     initYjs();
   });
 
-  // Cleanup Yjs on component destroy
+  // Cleanup Yjs and session observation on component destroy
   $effect(() => {
     return () => {
+      if (transposeCleanup) {
+        transposeCleanup();
+        transposeCleanup = null;
+      }
       if (indexeddbProvider) {
         indexeddbProvider.destroy();
       }
@@ -187,11 +196,14 @@
       // If not found locally, check if it's a session song
       if (!foundSong) {
         const { getSessionStore } = await import('$lib/stores/sessionStore.svelte');
-        const sessionStore = getSessionStore();
+        sessionStore = getSessionStore();
 
         if (sessionStore.isActive && sessionStore.qrPayload?.libraryManifest) {
           const sessionSong = sessionStore.qrPayload.libraryManifest.find(s => s.id === songId);
           if (sessionSong) {
+            // Mark this as a session song for navigation purposes
+            isSessionSong = true;
+
             // Create a temporary song object from session manifest
             foundSong = {
               id: sessionSong.id,
@@ -224,6 +236,16 @@
             } else {
               console.log('[SongViewer] No content received for:', songId);
             }
+
+            // Observe host's transpose state (for joiners)
+            const initialTranspose = sessionStore.getTranspose(songId);
+            if (initialTranspose !== 0) {
+              transposeSemitones = initialTranspose;
+            }
+            transposeCleanup = sessionStore.observeTranspose(songId, (semitones) => {
+              console.log('[SongViewer] Transpose update from host:', semitones);
+              transposeSemitones = semitones;
+            });
           }
         }
       }
@@ -366,11 +388,19 @@
   }
 
   // Transpose functions
-  function setTranspose(semitones: number) {
+  async function setTranspose(semitones: number) {
     transposeSemitones = semitones;
-    // Sync to Yjs for session sharing
+    // Sync to Yjs for local persistence
     if (yjsTranspose) {
       yjsTranspose.set('semitones', semitones);
+    }
+    // Sync to session if hosting (for real-time sync to joiners)
+    if (!sessionStore) {
+      const { getSessionStore } = await import('$lib/stores/sessionStore.svelte');
+      sessionStore = getSessionStore();
+    }
+    if (sessionStore.isActive && sessionStore.isHosting && song) {
+      sessionStore.setTranspose(song.id, semitones);
     }
   }
 
@@ -474,12 +504,16 @@
   {:else if error}
     <div class="error-container">
       <p>{error}</p>
-      <a href="/songs" class="btn btn-secondary">Back to Songs</a>
+      <a href={isSessionSong ? '/session' : '/songs'} class="btn btn-secondary">
+        {isSessionSong ? 'Back to Session' : 'Back to Songs'}
+      </a>
     </div>
   {:else if song}
     <header class="page-header">
       <div class="header-left">
-        <a href="/songs" class="back-link">← Back to Songs</a>
+        <a href={isSessionSong ? '/session' : '/songs'} class="back-link">
+          ← {isSessionSong ? 'Back to Session' : 'Back to Songs'}
+        </a>
         <div class="title-row">
           <h1>{song.title}</h1>
           {#if song.visibility === 'public'}
@@ -493,18 +527,20 @@
         {/if}
       </div>
       <div class="header-actions">
-        <button class="btn btn-secondary btn-sm" onclick={openInfoModal}>ℹ️</button>
-        <button class="btn btn-secondary" onclick={toggleEditMode}>
-          {editMode ? 'View' : 'Edit'}
-        </button>
-        <button class="btn btn-danger" onclick={deleteSong}>Delete</button>
+        {#if !isSessionSong}
+          <button class="btn btn-secondary btn-sm" onclick={openInfoModal}>ℹ️</button>
+          <button class="btn btn-secondary" onclick={toggleEditMode}>
+            {editMode ? 'View' : 'Edit'}
+          </button>
+          <button class="btn btn-danger" onclick={deleteSong}>Delete</button>
+        {/if}
       </div>
     </header>
 
     <div class="song-meta">
     </div>
 
-    {#if !editMode && (arrangements.length > 1 || transposeSemitones !== 0)}
+    {#if !editMode && !isSessionSong && (arrangements.length > 1 || transposeSemitones !== 0)}
       <div class="transpose-controls">
         <div class="transpose-buttons">
           <button class="transpose-btn" onclick={() => transposeBy(-1)} title="Transpose down">
@@ -578,28 +614,37 @@
           <div class="renderer-container" class:maximized={isMaximized}>
             <div class="renderer-toolbar">
               <div class="toolbar-left">
-                <div class="transpose-buttons">
-                  <button class="transpose-btn" onclick={() => transposeBy(-1)} title="Transpose down">
-                    -1
-                  </button>
-                  <button
-                    class="transpose-display"
-                    onclick={() => (showTransposeModal = true)}
-                    title="Click to transpose to key"
-                  >
-                    {#if transposeSemitones === 0}
-                      Original
-                    {:else}
-                      {transposeSemitones > 0 ? '+' : ''}{transposeSemitones}
-                    {/if}
-                  </button>
-                  <button class="transpose-btn" onclick={() => transposeBy(1)} title="Transpose up">
-                    +1
-                  </button>
+                {#if isSessionSong}
+                  <!-- Read-only transpose indicator for session joiners -->
                   {#if transposeSemitones !== 0}
-                    <button class="reset-btn" onclick={resetTranspose}>Reset</button>
+                    <span class="transpose-indicator">
+                      Transposed: {transposeSemitones > 0 ? '+' : ''}{transposeSemitones}
+                    </span>
                   {/if}
-                </div>
+                {:else}
+                  <div class="transpose-buttons">
+                    <button class="transpose-btn" onclick={() => transposeBy(-1)} title="Transpose down">
+                      -1
+                    </button>
+                    <button
+                      class="transpose-display"
+                      onclick={() => (showTransposeModal = true)}
+                      title="Click to transpose to key"
+                    >
+                      {#if transposeSemitones === 0}
+                        Original
+                      {:else}
+                        {transposeSemitones > 0 ? '+' : ''}{transposeSemitones}
+                      {/if}
+                    </button>
+                    <button class="transpose-btn" onclick={() => transposeBy(1)} title="Transpose up">
+                      +1
+                    </button>
+                    {#if transposeSemitones !== 0}
+                      <button class="reset-btn" onclick={resetTranspose}>Reset</button>
+                    {/if}
+                  </div>
+                {/if}
               </div>
               <div class="toolbar-right">
                 <button
@@ -1108,6 +1153,14 @@
     align-items: center;
     gap: var(--spacing-md);
     padding: var(--spacing-sm) 0;
+  }
+
+  .transpose-indicator {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
   }
 
   .transpose-buttons {
