@@ -201,7 +201,7 @@ export class BootstrapSignaling {
     this.destroyed = true;
 
     // Close all peer connections
-    for (const [peerId, pc] of this.peerConnections) {
+    for (const pc of this.peerConnections.values()) {
       pc.close();
     }
     this.peerConnections.clear();
