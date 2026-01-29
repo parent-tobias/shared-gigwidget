@@ -19,6 +19,7 @@
   let showJoinModal = $state(false);
   let joinError = $state<string | null>(null);
   let scanning = $state(false);
+  let manualCode = $state('');
 
   // Host modal
   let showHostModal = $state(false);
@@ -135,6 +136,19 @@
       selectedSongIds = [...selectedSongIds, songId];
     }
   }
+
+  async function copySessionCode() {
+    if (!session.qrPayload) return;
+
+    try {
+      const { encodeSessionPayload } = await import('@gigwidget/sync');
+      const code = encodeSessionPayload(session.qrPayload);
+      await navigator.clipboard.writeText(code);
+      alert('Session code copied to clipboard!');
+    } catch (err) {
+      console.error('Failed to copy session code:', err);
+    }
+  }
 </script>
 
 <svelte:head>
@@ -171,6 +185,11 @@
           <h3>Scan to Join</h3>
           <img src={session.qrDataUrl} alt="Session QR Code" class="qr-code" />
           <p class="qr-hint">Others can scan this QR code to join your session</p>
+          {#if session.qrPayload}
+            <button class="btn btn-secondary copy-code-btn" onclick={copySessionCode}>
+              Copy Session Code
+            </button>
+          {/if}
         </div>
       {/if}
 
@@ -330,6 +349,26 @@
       {:else}
         <p class="scan-hint">Point your camera at the host's QR code</p>
       {/if}
+
+      <div class="divider">
+        <span>or paste session code</span>
+      </div>
+
+      <div class="manual-entry">
+        <input
+          type="text"
+          bind:value={manualCode}
+          placeholder="Paste session code here..."
+          class="code-input"
+        />
+        <button
+          class="btn btn-secondary"
+          onclick={() => processQRPayload(manualCode)}
+          disabled={!manualCode.trim()}
+        >
+          Join
+        </button>
+      </div>
 
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick={() => (showJoinModal = false)}>
@@ -494,6 +533,11 @@
     color: var(--color-text-muted);
   }
 
+  .copy-code-btn {
+    margin-top: var(--spacing-md);
+    font-size: 0.75rem;
+  }
+
   .shared-songs {
     width: 100%;
     max-width: 400px;
@@ -637,6 +681,34 @@
     text-align: center;
     color: var(--color-text-muted);
     font-size: 0.875rem;
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin: var(--spacing-lg) 0;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+  }
+
+  .divider::before,
+  .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background-color: var(--color-border);
+  }
+
+  .manual-entry {
+    display: flex;
+    gap: var(--spacing-sm);
+  }
+
+  .code-input {
+    flex: 1;
+    font-family: var(--font-family-mono);
+    font-size: 0.75rem;
   }
 
   .modal-actions {
