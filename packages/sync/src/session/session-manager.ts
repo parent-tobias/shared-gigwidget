@@ -395,6 +395,12 @@ export class SessionManager extends Observable {
       session.connectionInfo.password = password;
     }
 
+    console.log('[SessionManager] Hosting WebRTC session:', {
+      roomId: session.id,
+      signalingServers: this.signalingServers,
+      hasPassword: !!password,
+    });
+
     this.webrtcProvider = new WebrtcProvider(session.id, this.sessionDoc, {
       signaling: this.signalingServers,
       password,
@@ -408,6 +414,12 @@ export class SessionManager extends Observable {
 
     const info = session.connectionInfo;
     if (info.type !== 'webrtc') throw new Error('Invalid connection info');
+
+    console.log('[SessionManager] Joining WebRTC session:', {
+      roomId: session.id,
+      signalingServer: info.signalingServer,
+      hasPassword: !!info.password,
+    });
 
     this.webrtcProvider = new WebrtcProvider(session.id, this.sessionDoc, {
       signaling: [info.signalingServer],
@@ -438,11 +450,18 @@ export class SessionManager extends Observable {
     });
 
     this.webrtcProvider.on('synced', (event: { synced: boolean }) => {
+      console.log('[SessionManager] WebRTC synced:', event.synced);
       this.emit('sync-status', [{ synced: event.synced, transport: 'webrtc' }]);
     });
 
     this.webrtcProvider.on('peers', (event: { webrtcPeers: unknown[] }) => {
+      console.log('[SessionManager] WebRTC peers:', event.webrtcPeers.length);
       this.emit('peers-changed', [{ count: event.webrtcPeers.length, transport: 'webrtc' }]);
+    });
+
+    // Log connection status
+    this.webrtcProvider.on('status', (event: { connected: boolean }) => {
+      console.log('[SessionManager] WebRTC status:', event.connected ? 'connected' : 'disconnected');
     });
   }
 

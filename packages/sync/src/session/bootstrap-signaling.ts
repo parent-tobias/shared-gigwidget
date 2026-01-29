@@ -31,6 +31,7 @@ export class BootstrapSignaling {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;
   private destroyed = false;
+  private clientId: string | null = null;
 
   constructor(options: BootstrapSignalingOptions) {
     this.sessionId = options.sessionId;
@@ -47,11 +48,13 @@ export class BootstrapSignaling {
 
     return new Promise((resolve, reject) => {
       try {
+        console.log('[BootstrapSignaling] Connecting to:', this.signalingServer);
         this.ws = new WebSocket(this.signalingServer);
 
         this.ws.onopen = () => {
-          console.log('[BootstrapSignaling] Connected to signaling server');
+          console.log('[BootstrapSignaling] Connected to signaling server:', this.signalingServer);
           // Subscribe to session topic
+          console.log('[BootstrapSignaling] Subscribing to topic:', this.sessionId);
           this.send({
             type: 'subscribe',
             topics: [this.sessionId],
@@ -91,11 +94,17 @@ export class BootstrapSignaling {
   private handleMessage(raw: string): void {
     try {
       const msg = JSON.parse(raw);
+      console.log('[BootstrapSignaling] Message received:', msg.type);
 
-      if (msg.type === 'publish') {
+      if (msg.type === 'connected') {
+        this.clientId = msg.clientId;
+        console.log('[BootstrapSignaling] Assigned clientId:', this.clientId);
+      } else if (msg.type === 'publish') {
         const data = msg.data || JSON.parse(msg.message || '{}');
         const from = msg.from || msg.clientId || 'unknown';
         this.handleSignalingMessage(data, from);
+      } else if (msg.type === 'pong') {
+        // Heartbeat response, ignore
       }
     } catch (err) {
       console.error('[BootstrapSignaling] Failed to parse message:', err);

@@ -73,9 +73,12 @@ async function initSessionManager(user: User): Promise<void> {
         ];
       } else {
         // Production: use deployed signaling server or public servers
+        // Note: Railway server may need to be redeployed if connection is refused
         signalingServers = [
           'wss://gigwidget-signalling-server-production.up.railway.app',
-          'wss://signaling.yjs.dev', // Fallback to public
+          'wss://signaling.yjs.dev',
+          'wss://y-webrtc-signaling-eu.herokuapp.com',
+          'wss://y-webrtc-signaling-us.herokuapp.com',
         ];
       }
     }
@@ -95,10 +98,24 @@ async function initSessionManager(user: User): Promise<void> {
       await generateQR(payload);
     });
 
-    sessionManager.on('session-joined', ({ session }: any) => {
+    sessionManager.on('session-joined', ({ session, manifest }: any) => {
       isActive = true;
       isHosting = false;
       status = 'connected';
+      // Store the manifest so joiners can see the shared songs
+      if (manifest) {
+        qrPayload = {
+          sessionId: session.id,
+          type: session.type,
+          hostId: session.hostId,
+          hostName: 'Host', // We don't have this from the session object
+          connectionInfo: session.connectionInfo,
+          libraryManifest: manifest,
+          createdAt: session.createdAt.getTime(),
+          expiresAt: session.expiresAt?.getTime(),
+        };
+      }
+      console.log('[Session] Joined session, manifest:', manifest?.length, 'songs');
     });
 
     sessionManager.on('session-left', () => {
