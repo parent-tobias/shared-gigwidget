@@ -68,7 +68,7 @@
         const trimmed = line.trim();
         // Skip lines that are metadata directives (both full and abbreviated forms)
         // Matches: {t: }, {title: }, {a: }, {artist: }, {key: }, {c: }, {comment: }, {capo: }, etc.
-        return !trimmed.match(/^\{(t|title|a|artist|key|c|comment|tempo|capo|tuning|duration|composer|copyright|original|album|year|writer)\s*:/i);
+        return !trimmed.match(/^\{(t|title|a|st|artist|key|c|comment|tempo|capo|tuning|duration|composer|copyright|original|album|year|writer)\s*:/i);
       })
       .join('\n');
   }

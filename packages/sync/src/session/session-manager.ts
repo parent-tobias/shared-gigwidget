@@ -27,6 +27,7 @@ import { WebrtcProvider } from 'y-webrtc';
 import { BluetoothProvider, isBluetoothAvailable } from '../providers/index.js';
 import { Observable } from '../providers/observable.js';
 import { BootstrapHost, BOOTSTRAP_CHANNEL_LABEL } from '../bootstrap/index.js';
+import { BootstrapSignaling } from './bootstrap-signaling.js';
 
 // Default WebRTC signaling servers - using more reliable options
 const DEFAULT_SIGNALING_SERVERS = [
@@ -68,6 +69,7 @@ export class SessionManager extends Observable {
   private webrtcProvider: WebrtcProvider | null = null;
   private bluetoothProvider: BluetoothProvider | null = null;
   private bootstrapHost: BootstrapHost | null = null;
+  private bootstrapSignaling: BootstrapSignaling | null = null;
   private avatarThumbnail: string | undefined;
 
   readonly user: User;
@@ -172,7 +174,7 @@ export class SessionManager extends Observable {
 
     // Initialize bootstrap host if enabled
     if (options.enableBootstrap && options.songDocs) {
-      await this.initBootstrapHost(options.appBundle, options.songDocs);
+      await this.initBootstrapHost(options.appBundle, options.songDocs, session.id);
     }
 
     // Initialize session based on transport type
@@ -232,7 +234,8 @@ export class SessionManager extends Observable {
    */
   private async initBootstrapHost(
     appBundle: ArrayBuffer | undefined,
-    songDocs: Map<string, Y.Doc>
+    songDocs: Map<string, Y.Doc>,
+    sessionId: string
   ): Promise<void> {
     this.bootstrapHost = new BootstrapHost({
       appBundle,
@@ -251,6 +254,26 @@ export class SessionManager extends Observable {
     if (appBundle) {
       await this.bootstrapHost.setAppBundle(appBundle);
     }
+
+    // Set up raw WebRTC signaling for bootstrap connections
+    // This handles join pages that use raw SDP signaling (not y-webrtc)
+    this.bootstrapSignaling = new BootstrapSignaling({
+      sessionId,
+      signalingServer: this.signalingServers[0],
+      onDataChannel: (channel, peerId) => {
+        console.log('[SessionManager] Bootstrap data channel connected from:', peerId);
+        if (this.bootstrapHost) {
+          this.bootstrapHost.handleDataChannel(channel, peerId);
+        }
+      },
+      onError: (err) => {
+        console.error('[SessionManager] Bootstrap signaling error:', err);
+        this.emit('error', [err]);
+      },
+    });
+
+    await this.bootstrapSignaling.connect();
+    console.log('[SessionManager] Bootstrap signaling ready');
   }
 
   /**
@@ -332,6 +355,11 @@ export class SessionManager extends Observable {
     if (this.bootstrapHost) {
       this.bootstrapHost.destroy();
       this.bootstrapHost = null;
+    }
+
+    if (this.bootstrapSignaling) {
+      this.bootstrapSignaling.destroy();
+      this.bootstrapSignaling = null;
     }
 
     if (this.sessionDoc) {

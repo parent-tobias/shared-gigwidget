@@ -26,7 +26,7 @@ import { encodeSongStates, estimateEncodedSize } from './song-encoder.js';
 // ============================================================================
 
 export interface BootstrapHostOptions {
-  /** Pre-loaded app bundle (Brotli compressed) */
+  /** Pre-loaded app bundle (gzip compressed) */
   appBundle?: ArrayBuffer;
   /** Hash of the app bundle for verification */
   appBundleHash?: string;
@@ -244,6 +244,7 @@ export class BootstrapHost {
     };
 
     // Send transfer-start message
+    // Note: Use 'gzip' for app bundle as the join page supports gzip decompression via DecompressionStream
     const startMessage: TransferStartMessage = {
       type: 'transfer-start',
       transferId,
@@ -251,7 +252,7 @@ export class BootstrapHost {
       totalSize: data.byteLength,
       totalChunks: chunks.length,
       hash,
-      compression: type === 'app-bundle' ? 'brotli' : 'none',
+      compression: type === 'app-bundle' ? 'gzip' : 'none',
     };
 
     this.sendMessage(peer, startMessage);
