@@ -66,6 +66,10 @@
       if (song) {
         setSongs = [...setSongs, song];
       }
+
+      // Sync to cloud
+      const { syncSongSetToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongSetToCloud(set);
     } catch (err) {
       console.error('Failed to add song:', err);
     }
@@ -80,6 +84,10 @@
 
       set = { ...set, songIds: set.songIds.filter((id) => id !== songId) };
       setSongs = setSongs.filter((s) => s.id !== songId);
+
+      // Sync to cloud
+      const { syncSongSetToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongSetToCloud(set);
     } catch (err) {
       console.error('Failed to remove song:', err);
     }
@@ -103,6 +111,10 @@
     try {
       const { SongSetRepository } = await import('@gigwidget/db');
       await SongSetRepository.reorderSongs(set.id, newSongIds);
+
+      // Sync to cloud
+      const { syncSongSetToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongSetToCloud(set);
     } catch (err) {
       console.error('Failed to reorder songs:', err);
       // Reload on error
@@ -140,6 +152,10 @@
       const { SongSetRepository } = await import('@gigwidget/db');
       await SongSetRepository.update(set.id, { visibility: newVisibility });
       set = { ...set, visibility: newVisibility };
+
+      // Sync to cloud
+      const { syncSongSetToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongSetToCloud(set);
     } catch (err) {
       console.error('Failed to update visibility:', err);
     } finally {

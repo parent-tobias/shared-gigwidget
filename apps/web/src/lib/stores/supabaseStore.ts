@@ -757,6 +757,31 @@ export async function saveSongSetToSupabase(
 }
 
 /**
+ * Load all song sets for a user from Supabase
+ */
+export async function loadSongSetsFromSupabase(
+  userId: string
+): Promise<{ data?: SupabaseSongSet[]; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('song_sets')
+      .select('*')
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error('Error loading song sets from Supabase:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseSongSet[] };
+  } catch (err) {
+    console.error('Exception loading song sets:', err);
+    return { error: err };
+  }
+}
+
+/**
  * Delete a song set from Supabase
  */
 export async function deleteSongSetFromSupabase(

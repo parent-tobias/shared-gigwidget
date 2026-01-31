@@ -5,7 +5,7 @@
 
 import { browser } from '$app/environment';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import type { Song, CustomInstrument } from '@gigwidget/core';
+import type { Song, CustomInstrument, SongSet } from '@gigwidget/core';
 import {
   supabase,
   saveSongToSupabase,
@@ -21,11 +21,15 @@ import {
   getCustomInstruments,
   upsertCustomInstrument,
   deleteCustomInstrument as deleteCustomInstrumentFromSupabase,
+  loadSongSetsFromSupabase,
+  saveSongSetToSupabase,
+  deleteSongSetFromSupabase,
   type SupabaseSong,
   type SongChangePayload,
   type SupabaseProfile,
   type SupabasePreferences,
   type SupabaseCustomInstrument,
+  type SupabaseSongSet,
 } from './supabaseStore';
 import { getSupabaseUserId, isAuthenticated } from './authStore.svelte';
 
@@ -174,6 +178,15 @@ async function performInitialSync(userId: string): Promise<void> {
       console.log('[Sync] Custom instruments sync done');
     } catch (err) {
       console.error('[Sync] Custom instruments sync failed (continuing):', err);
+    }
+
+    // Sync song sets/collections (non-blocking)
+    console.log('[Sync] Syncing song sets...');
+    try {
+      await syncSongSetsFromCloud(db, userId, localUser.id);
+      console.log('[Sync] Song sets sync done');
+    } catch (err) {
+      console.error('[Sync] Song sets sync failed (continuing):', err);
     }
 
     // Load songs from Supabase
@@ -517,6 +530,102 @@ async function syncCustomInstrumentsFromCloud(
   console.log('[Sync] Custom instruments sync complete');
 }
 
+/**
+ * Sync song sets/collections from cloud to local.
+ * Uses merge strategy: both cloud and local sets are kept.
+ */
+async function syncSongSetsFromCloud(
+  db: Awaited<ReturnType<typeof import('@gigwidget/db').getDatabase>>,
+  supabaseUserId: string,
+  localUserId: string
+): Promise<void> {
+  console.log('[Sync] Starting song sets sync...');
+
+  const { data: cloudSets, error } = await loadSongSetsFromSupabase(supabaseUserId);
+  if (error) {
+    console.error('[Sync] Failed to get cloud song sets:', error);
+    throw error;
+  }
+
+  // Get local song sets
+  const { SongSetRepository } = await import('@gigwidget/db');
+  const localSets = await SongSetRepository.getByUser(localUserId);
+
+  // Create maps for comparison
+  const cloudMap = new Map<string, SupabaseSongSet>();
+  cloudSets?.forEach(s => cloudMap.set(s.id, s));
+
+  const localMap = new Map<string, SongSet>();
+  localSets.forEach(s => localMap.set(s.id, s));
+
+  // Pull cloud-only sets to local
+  for (const cloudSet of cloudSets ?? []) {
+    if (!localMap.has(cloudSet.id)) {
+      console.log(`[Sync] Pulling cloud set: ${cloudSet.name}`);
+      await SongSetRepository.create({
+        id: cloudSet.id,
+        userId: localUserId,
+        name: cloudSet.name,
+        description: cloudSet.description ?? undefined,
+        parentSetId: cloudSet.parent_set_id ?? undefined,
+        songIds: cloudSet.song_ids,
+        isSetlist: cloudSet.is_setlist,
+        visibility: cloudSet.visibility,
+        createdAt: new Date(cloudSet.created_at),
+        updatedAt: new Date(cloudSet.updated_at),
+      });
+    } else {
+      // Both exist - compare timestamps, newer wins
+      const cloudUpdated = new Date(cloudSet.updated_at);
+      const localSet = localMap.get(cloudSet.id)!;
+      const localUpdated = new Date(localSet.updatedAt);
+
+      if (cloudUpdated > localUpdated) {
+        console.log(`[Sync] Cloud set newer, pulling: ${cloudSet.name}`);
+        await SongSetRepository.update(cloudSet.id, {
+          name: cloudSet.name,
+          description: cloudSet.description ?? undefined,
+          parentSetId: cloudSet.parent_set_id ?? undefined,
+          songIds: cloudSet.song_ids,
+          isSetlist: cloudSet.is_setlist,
+          visibility: cloudSet.visibility,
+          updatedAt: new Date(cloudSet.updated_at),
+        });
+      } else if (localUpdated > cloudUpdated) {
+        // Local is newer, push to cloud
+        console.log(`[Sync] Local set newer, pushing: ${localSet.name}`);
+        await saveSongSetToSupabase(supabaseUserId, {
+          id: localSet.id,
+          name: localSet.name,
+          description: localSet.description,
+          parentSetId: localSet.parentSetId,
+          songIds: localSet.songIds,
+          isSetlist: localSet.isSetlist,
+          visibility: localSet.visibility,
+        });
+      }
+    }
+  }
+
+  // Push local-only sets to cloud
+  for (const localSet of localSets) {
+    if (!cloudMap.has(localSet.id)) {
+      console.log(`[Sync] Pushing local set: ${localSet.name}`);
+      await saveSongSetToSupabase(supabaseUserId, {
+        id: localSet.id,
+        name: localSet.name,
+        description: localSet.description,
+        parentSetId: localSet.parentSetId,
+        songIds: localSet.songIds,
+        isSetlist: localSet.isSetlist,
+        visibility: localSet.visibility,
+      });
+    }
+  }
+
+  console.log('[Sync] Song sets sync complete');
+}
+
 // ============================================================================
 // Real-time Subscription
 // ============================================================================
@@ -842,6 +951,58 @@ export async function deleteCustomInstrumentFromCloud(instrumentId: string): Pro
     return {};
   } catch (err) {
     console.error('[Sync] Failed to delete custom instrument from cloud:', err);
+    return { error: err instanceof Error ? err.message : 'Failed to delete' };
+  }
+}
+
+/**
+ * Sync a song set to cloud after local create/edit.
+ */
+export async function syncSongSetToCloud(songSet: SongSet): Promise<{ error?: string }> {
+  if (!isAuthenticated()) return { error: 'Not authenticated' };
+
+  const userId = getSupabaseUserId();
+  if (!userId) return { error: 'No user ID' };
+
+  try {
+    const { error } = await saveSongSetToSupabase(userId, {
+      id: songSet.id,
+      name: songSet.name,
+      description: songSet.description,
+      parentSetId: songSet.parentSetId,
+      songIds: songSet.songIds,
+      isSetlist: songSet.isSetlist,
+      visibility: songSet.visibility,
+    });
+
+    if (error) {
+      return { error: String(error) };
+    }
+
+    console.log('[Sync] Song set synced to cloud:', songSet.name);
+    return {};
+  } catch (err) {
+    console.error('[Sync] Failed to sync song set:', err);
+    return { error: err instanceof Error ? err.message : 'Failed to sync song set' };
+  }
+}
+
+/**
+ * Delete a song set from cloud.
+ */
+export async function deleteSongSetFromCloud(setId: string): Promise<{ error?: string }> {
+  if (!isAuthenticated()) return { error: 'Not authenticated' };
+
+  try {
+    const { error } = await deleteSongSetFromSupabase(setId);
+    if (error) {
+      return { error: String(error) };
+    }
+
+    console.log('[Sync] Song set deleted from cloud');
+    return {};
+  } catch (err) {
+    console.error('[Sync] Failed to delete song set from cloud:', err);
     return { error: err instanceof Error ? err.message : 'Failed to delete' };
   }
 }

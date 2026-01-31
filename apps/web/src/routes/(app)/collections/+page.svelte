@@ -64,6 +64,10 @@
       await SongSetRepository.create(newSet);
       sets = [...sets, newSet];
 
+      // Sync to cloud
+      const { syncSongSetToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongSetToCloud(newSet);
+
       // Reset form
       newSetName = '';
       newSetDescription = '';
@@ -87,6 +91,10 @@
       const { SongSetRepository } = await import('@gigwidget/db');
       await SongSetRepository.delete(setId);
       sets = sets.filter((s) => s.id !== setId);
+
+      // Sync deletion to cloud
+      const { deleteSongSetFromCloud } = await import('$lib/stores/syncStore.svelte');
+      await deleteSongSetFromCloud(setId);
     } catch (err) {
       console.error('Failed to delete collection:', err);
     }
