@@ -10,6 +10,7 @@ export {
   GigwidgetDatabase,
   getDatabase,
   closeDatabase,
+  clearDatabase,
   initializeDatabase,
 } from './schema.js';
 

@@ -46,9 +46,9 @@ export function initializeAuth(): void {
       authSession = session;
       authUser = session?.user ?? null;
 
-      // If already logged in, start sync
+      // If already logged in, initialize authenticated user and start sync
       if (session?.user) {
-        await linkToLocalUser(session.user.id);
+        await initializeAuthenticatedUser(session.user.id);
         // Start sync in background (don't await - could take a long time with many songs)
         import('./syncStore.svelte').then(({ initializeSync }) => {
           initializeSync().catch(err => console.error('[Auth] Background sync failed:', err));
@@ -68,19 +68,29 @@ export function initializeAuth(): void {
     authUser = session?.user ?? null;
     authError = null;
 
-    // Link to local user and start sync when signed in
+    // Clear anonymous data and initialize authenticated user when signed in
     if (event === 'SIGNED_IN' && session?.user) {
-      await linkToLocalUser(session.user.id);
+      await initializeAuthenticatedUser(session.user.id);
       // Start sync in background (don't await - could take a long time with many songs)
       import('./syncStore.svelte').then(({ initializeSync }) => {
         initializeSync().catch(err => console.error('[Auth] Background sync failed:', err));
       });
     }
 
-    // Stop sync when signed out
+    // Stop sync and clear database when signed out
     if (event === 'SIGNED_OUT') {
       const { stopSync } = await import('./syncStore.svelte');
       await stopSync();
+
+      // Clear all local data when logging out
+      const { clearDatabase } = await import('@gigwidget/db');
+      await clearDatabase();
+      console.log('[Auth] Local database cleared on sign out');
+
+      // Reload the page to reset app state
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
     }
   });
 }
@@ -171,26 +181,41 @@ export async function signOut(): Promise<void> {
 }
 
 /**
- * Link the Supabase user ID to the local IndexedDB user
+ * Initialize authenticated user by clearing anonymous data and creating fresh user.
+ * This ensures no anonymous data persists after login.
  */
-async function linkToLocalUser(supabaseId: string): Promise<void> {
+async function initializeAuthenticatedUser(supabaseId: string): Promise<void> {
   try {
-    const { getDatabase } = await import('@gigwidget/db');
+    const { clearDatabase, initializeDatabase, getDatabase } = await import('@gigwidget/db');
+    const { createSpace, generateId } = await import('@gigwidget/core');
     const db = getDatabase();
 
+    // Check if we already have this authenticated user
     const users = await db.users.toArray();
-    if (users.length > 0) {
-      const localUser = users[0];
-      if (localUser.supabaseId !== supabaseId) {
-        await db.users.update(localUser.id, {
-          supabaseId,
-          lastSyncAt: new Date(),
-        });
-        console.log('[Auth] Linked Supabase user to local user');
-      }
+    const existingAuthUser = users.find(u => u.supabaseId === supabaseId);
+
+    if (existingAuthUser) {
+      // Already initialized for this auth user, nothing to do
+      console.log('[Auth] Authenticated user already initialized');
+      return;
     }
+
+    // Clear all anonymous data
+    console.log('[Auth] Clearing anonymous user data...');
+    await clearDatabase();
+
+    // Initialize new authenticated user
+    // initializeDatabase creates an anonymous user, but we'll update it with the Supabase ID
+    const user = await initializeDatabase();
+
+    await db.users.update(user.id, {
+      supabaseId,
+      lastSyncAt: new Date(),
+    });
+
+    console.log('[Auth] Initialized authenticated user, ready to sync from cloud');
   } catch (err) {
-    console.error('[Auth] Failed to link local user:', err);
+    console.error('[Auth] Failed to initialize authenticated user:', err);
   }
 }
 

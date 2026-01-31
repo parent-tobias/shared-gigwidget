@@ -131,6 +131,51 @@ export async function closeDatabase(): Promise<void> {
   }
 }
 
+/**
+ * Clear all data from the database (e.g., on logout).
+ * This removes all tables and recreates them empty.
+ */
+export async function clearDatabase(): Promise<void> {
+  const db = getDatabase();
+
+  // Clear all tables in a transaction
+  await db.transaction('rw', [
+    db.users,
+    db.userPreferences,
+    db.songs,
+    db.arrangements,
+    db.snapshots,
+    db.spaces,
+    db.memberships,
+    db.sessions,
+    db.sessionParticipants,
+    db.syncStates,
+    db.conflicts,
+    db.customInstruments,
+    db.localFingerings,
+    db.songMetadata,
+    db.songSets,
+  ], async () => {
+    await db.users.clear();
+    await db.userPreferences.clear();
+    await db.songs.clear();
+    await db.arrangements.clear();
+    await db.snapshots.clear();
+    await db.spaces.clear();
+    await db.memberships.clear();
+    await db.sessions.clear();
+    await db.sessionParticipants.clear();
+    await db.syncStates.clear();
+    await db.conflicts.clear();
+    await db.customInstruments.clear();
+    await db.localFingerings.clear();
+    await db.songMetadata.clear();
+    await db.songSets.clear();
+  });
+
+  console.log('[DB] Database cleared');
+}
+
 // ============================================================================
 // Database Initialization
 // ============================================================================
