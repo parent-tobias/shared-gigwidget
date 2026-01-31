@@ -90,8 +90,11 @@
     if (user) {
       editDisplayName = user.displayName;
       editInstruments = [...user.instruments];
+      // Prefer local blob, fall back to cloud URL
       if (user.avatar) {
         avatarPreview = URL.createObjectURL(user.avatar);
+      } else if (user.avatarUrl) {
+        avatarPreview = user.avatarUrl;
       }
     }
   });

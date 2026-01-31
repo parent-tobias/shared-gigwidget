@@ -386,7 +386,7 @@ async function syncProfileFromCloud(
       displayName: cloudProfile.display_name,
       instruments: cloudProfile.instruments,
       subscriptionTier: cloudProfile.subscription_tier,
-      // Note: avatar_url is a remote URL, we store it differently locally
+      avatarUrl: cloudProfile.avatar_url ?? undefined,
     });
   } else {
     // No cloud profile - push local to cloud

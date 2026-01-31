@@ -49,7 +49,8 @@ export interface User {
   id: string;
   supabaseId?: string;
   displayName: string;
-  avatar?: Blob;
+  avatar?: Blob; // Local avatar file
+  avatarUrl?: string; // Remote avatar URL from Supabase storage
   instruments: Instrument[];
   subscriptionTier: SubscriptionTier;
   subscriptionExpiresAt?: Date;
