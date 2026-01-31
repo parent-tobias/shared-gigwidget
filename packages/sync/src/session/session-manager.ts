@@ -240,9 +240,9 @@ export class SessionManager extends Observable {
       };
     }
 
-    // Emit with the full manifest for local use (host UI)
-    const fullPayload = { ...qrPayload, libraryManifest: songManifest };
-    this.emit('session-created', [{ session, qrPayload: fullPayload }]);
+    // Store manifest for WebRTC sharing (manifestMap handles this)
+    // Emit qrPayload WITHOUT manifest to keep QR code small
+    this.emit('session-created', [{ session, qrPayload, songManifest }]);
 
     return qrPayload;
   }

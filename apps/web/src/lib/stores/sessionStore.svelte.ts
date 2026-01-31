@@ -90,12 +90,14 @@ async function initSessionManager(user: User): Promise<void> {
 
     sessionManager = new SessionManager({ user, signalingServers });
 
-    sessionManager.on('session-created', async ({ session, qrPayload: payload }: any) => {
-      console.log('[Session] session-created event received, manifest size:', payload?.libraryManifest?.length);
+    sessionManager.on('session-created', async ({ session, qrPayload: payload, songManifest }: any) => {
+      console.log('[Session] session-created event received, manifest size:', songManifest?.length);
       isActive = true;
       isHosting = true;
       status = 'connected';
-      qrPayload = payload;
+      // QR payload is kept small (no manifest), but we store the full payload for local UI
+      qrPayload = { ...payload, libraryManifest: songManifest || [] };
+      // Generate QR with ONLY the connection info (no manifest)
       await generateQR(payload);
       console.log('[Session] After generateQR, qrDataUrl is:', qrDataUrl ? 'set' : 'null');
 
