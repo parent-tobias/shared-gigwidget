@@ -259,7 +259,7 @@
               {#if set.isSetlist}
                 <span class="song-number">{index + 1}</span>
               {/if}
-              <a href="/library/{song.id}" class="song-link">
+              <a href="/library/{song.id}?from=collection&collectionId={set.id}" class="song-link">
                 <div class="song-info">
                   <span class="song-title">{song.title}</span>
                   {#if song.artist}

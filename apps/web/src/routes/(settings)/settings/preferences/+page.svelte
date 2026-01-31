@@ -22,7 +22,7 @@
   let hasLoaded = false;
 
   // Preferences state
-  let defaultInstrument = $state<string>('');
+  let defaultInstrument = $state<string>('Standard Guitar'); // Default to Standard Guitar
   let chordListPosition = $state<'top' | 'right' | 'bottom'>('top');
   let theme = $state<'light' | 'dark' | 'auto'>('auto');
   let compactView = $state(false);

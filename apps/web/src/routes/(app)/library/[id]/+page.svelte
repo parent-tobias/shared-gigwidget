@@ -9,7 +9,9 @@
     if (!browser) return;
     const id = $page.params.id;
     if (id) {
-      goto(`/songs/${id}`, { replaceState: true });
+      // Preserve query params for breadcrumb context
+      const search = $page.url.search;
+      goto(`/songs/${id}${search}`, { replaceState: true });
     }
   });
 </script>

@@ -19,7 +19,7 @@
   let chordListPosition = $state<'top' | 'right' | 'bottom'>('top');
   let theme = $state<'light' | 'dark' | 'auto'>('auto');
   let compactView = $state(false);
-  let defaultInstrument = $state<string>('');
+  let defaultInstrument = $state<string>('Standard Guitar'); // Default to Standard Guitar to prevent chord viewer errors
 
   // Renderer view controls
   let isMaximized = $state(false);
@@ -44,6 +44,24 @@
   let isSessionSong = $state(false);
   let sessionStore: ReturnType<typeof import('$lib/stores/sessionStore.svelte').getSessionStore> | null = null;
   let transposeCleanup: (() => void) | null = null;
+
+  // Navigation context (for breadcrumbs)
+  const fromContext = $derived($page.url.searchParams.get('from'));
+  const collectionId = $derived($page.url.searchParams.get('collectionId'));
+  const backLink = $derived(
+    isSessionSong
+      ? '/session'
+      : fromContext === 'collection' && collectionId
+        ? `/collections/${collectionId}`
+        : '/songs'
+  );
+  const backText = $derived(
+    isSessionSong
+      ? 'Back to Session'
+      : fromContext === 'collection'
+        ? 'Back to Collection'
+        : 'Back to Songs'
+  );
 
   // Sync state
   let syncStatus = $state<'synced' | 'syncing' | 'offline' | 'error'>('offline');
@@ -504,15 +522,15 @@
   {:else if error}
     <div class="error-container">
       <p>{error}</p>
-      <a href={isSessionSong ? '/session' : '/songs'} class="btn btn-secondary">
-        {isSessionSong ? 'Back to Session' : 'Back to Songs'}
+      <a href={backLink} class="btn btn-secondary">
+        {backText}
       </a>
     </div>
   {:else if song}
     <header class="page-header">
       <div class="header-left">
-        <a href={isSessionSong ? '/session' : '/songs'} class="back-link">
-          ← {isSessionSong ? 'Back to Session' : 'Back to Songs'}
+        <a href={backLink} class="back-link">
+          ← {backText}
         </a>
         <div class="title-row">
           <h1>{song.title}</h1>
@@ -676,7 +694,7 @@
                 content={displayContent}
                 theme={rendererTheme === 'dark' ? 'chordpro-dark' : 'chordpro-light'}
                 chord-position={chordListPosition}
-                instrument={defaultInstrument || undefined}
+                instrument={defaultInstrument || 'Standard Guitar'}
               ></chordpro-renderer>
             </div>
           </div>
