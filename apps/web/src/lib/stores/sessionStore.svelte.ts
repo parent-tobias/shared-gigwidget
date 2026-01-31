@@ -91,11 +91,13 @@ async function initSessionManager(user: User): Promise<void> {
     sessionManager = new SessionManager({ user, signalingServers });
 
     sessionManager.on('session-created', async ({ session, qrPayload: payload }: any) => {
+      console.log('[Session] session-created event received, manifest size:', payload?.libraryManifest?.length);
       isActive = true;
       isHosting = true;
       status = 'connected';
       qrPayload = payload;
       await generateQR(payload);
+      console.log('[Session] After generateQR, qrDataUrl is:', qrDataUrl ? 'set' : 'null');
 
       // Set up content provider for hosts
       sessionManager.setContentProvider(async (songId: string) => {
@@ -110,24 +112,33 @@ async function initSessionManager(user: User): Promise<void> {
       });
     });
 
-    sessionManager.on('session-joined', ({ session, manifest }: any) => {
+    sessionManager.on('session-joined', ({ session }: any) => {
       isActive = true;
       isHosting = false;
       status = 'connected';
-      // Store the manifest so joiners can see the shared songs
-      if (manifest) {
+      // Initialize qrPayload with session info - manifest comes later via WebRTC
+      qrPayload = {
+        sessionId: session.id,
+        type: session.type,
+        hostId: session.hostId,
+        hostName: 'Host', // We don't have this from the session object
+        connectionInfo: session.connectionInfo,
+        libraryManifest: [], // Will be populated when manifest-received fires
+        createdAt: session.createdAt.getTime(),
+        expiresAt: session.expiresAt?.getTime(),
+      };
+      console.log('[Session] Joined session, waiting for manifest over WebRTC...');
+    });
+
+    // Manifest received over WebRTC (for joiners)
+    sessionManager.on('manifest-received', ({ manifest }: any) => {
+      console.log('[Session] Manifest received over WebRTC:', manifest?.length, 'songs');
+      if (qrPayload && manifest) {
         qrPayload = {
-          sessionId: session.id,
-          type: session.type,
-          hostId: session.hostId,
-          hostName: 'Host', // We don't have this from the session object
-          connectionInfo: session.connectionInfo,
+          ...qrPayload,
           libraryManifest: manifest,
-          createdAt: session.createdAt.getTime(),
-          expiresAt: session.expiresAt?.getTime(),
         };
       }
-      console.log('[Session] Joined session, manifest:', manifest?.length, 'songs');
     });
 
     sessionManager.on('session-left', () => {
@@ -165,8 +176,18 @@ async function initSessionManager(user: User): Promise<void> {
  */
 async function generateQR(payload: QRSessionPayload): Promise<void> {
   try {
-    const { generateQRCodeDataURL } = await import('@gigwidget/sync');
+    const { generateQRCodeDataURL, estimateQRCodeSize } = await import('@gigwidget/sync');
+
+    // Check if payload is too large for QR code
+    const sizeInfo = estimateQRCodeSize(payload);
+    console.log('[Session] QR payload size:', sizeInfo.bytes, 'bytes, too large:', sizeInfo.tooLarge);
+
+    if (sizeInfo.tooLarge) {
+      console.warn('[Session] QR payload may be too large for reliable scanning');
+    }
+
     qrDataUrl = await generateQRCodeDataURL(payload);
+    console.log('[Session] QR code generated successfully');
   } catch (err) {
     console.error('Failed to generate QR code:', err);
   }
@@ -310,6 +331,14 @@ function observeTranspose(songId: string, callback: (semitones: number) => void)
 }
 
 /**
+ * Get the current manifest (songs shared in this session)
+ */
+function getManifest(): SongManifestEntry[] {
+  if (!sessionManager) return [];
+  return sessionManager.getManifest();
+}
+
+/**
  * Join a session using an existing WebRTC connection from bootstrap.
  * Used when the app was loaded via P2P bootstrap.
  */
@@ -411,6 +440,7 @@ export function getSessionStore() {
     requestSongContent,
     getCachedContent,
     hasContent,
+    getManifest,
 
     // Transpose sharing
     setTranspose,

@@ -72,6 +72,10 @@ export class SessionManager extends Observable {
   private bootstrapSignaling: BootstrapSignaling | null = null;
   private avatarThumbnail: string | undefined;
 
+  // Song manifest sharing (sent over WebRTC, not in QR)
+  private manifestMap: Y.Map<string> | null = null;
+  private storedManifest: SongManifestEntry[] = [];
+
   // Song content sharing
   private songContentMap: Y.Map<string> | null = null;
   private contentRequests: Y.Map<number> | null = null;
@@ -200,7 +204,11 @@ export class SessionManager extends Observable {
 
     this.activeSession = session;
 
-    // Generate QR payload
+    // Store manifest for sharing over WebRTC (NOT in QR code)
+    this.storedManifest = songManifest;
+
+    // Generate QR payload - ONLY connection info, no manifest
+    // Manifest will be shared over WebRTC after connection is established
     let qrPayload: QRSessionPayload | BootstrapSessionPayload;
 
     if (options.enableBootstrap && this.bootstrapHost) {
@@ -211,7 +219,7 @@ export class SessionManager extends Observable {
         hostId: this.user.id,
         hostName: this.user.displayName,
         connectionInfo: session.connectionInfo,
-        libraryManifest: songManifest,
+        libraryManifest: [], // Empty - manifest shared over WebRTC
         createdAt: session.createdAt.getTime(),
         expiresAt: session.expiresAt?.getTime(),
         bootstrapVersion: 1,
@@ -226,13 +234,15 @@ export class SessionManager extends Observable {
         hostId: this.user.id,
         hostName: this.user.displayName,
         connectionInfo: session.connectionInfo,
-        libraryManifest: songManifest,
+        libraryManifest: [], // Empty - manifest shared over WebRTC
         createdAt: session.createdAt.getTime(),
         expiresAt: session.expiresAt?.getTime(),
       };
     }
 
-    this.emit('session-created', [{ session, qrPayload }]);
+    // Emit with the full manifest for local use (host UI)
+    const fullPayload = { ...qrPayload, libraryManifest: songManifest };
+    this.emit('session-created', [{ session, qrPayload: fullPayload }]);
 
     return qrPayload;
   }
@@ -512,9 +522,35 @@ export class SessionManager extends Observable {
   private initContentSharing(): void {
     if (!this.sessionDoc) return;
 
+    this.manifestMap = this.sessionDoc.getMap('manifest');
     this.songContentMap = this.sessionDoc.getMap('songContent');
     this.contentRequests = this.sessionDoc.getMap('contentRequests');
     this.transposeStateMap = this.sessionDoc.getMap('transposeState');
+
+    // Host: populate manifest map with stored manifest
+    if (this.isHosting && this.storedManifest.length > 0) {
+      console.log('[SessionManager] Sharing manifest over WebRTC:', this.storedManifest.length, 'songs');
+      this.manifestMap.set('songs', JSON.stringify(this.storedManifest));
+    }
+
+    // Joiner: observe manifest for updates
+    if (!this.isHosting) {
+      // Check if manifest already available
+      const existingManifest = this.manifestMap.get('songs');
+      if (existingManifest) {
+        this.handleManifestReceived(existingManifest);
+      }
+
+      // Observe for manifest updates
+      this.manifestMap.observe((event) => {
+        if (event.keysChanged.has('songs')) {
+          const manifest = this.manifestMap?.get('songs');
+          if (manifest) {
+            this.handleManifestReceived(manifest);
+          }
+        }
+      });
+    }
 
     // Host: listen for content requests
     if (this.isHosting && this.contentProvider) {
@@ -526,6 +562,27 @@ export class SessionManager extends Observable {
         });
       });
     }
+  }
+
+  /**
+   * Handle manifest received from host (joiner only)
+   */
+  private handleManifestReceived(manifestJson: string): void {
+    try {
+      const manifest: SongManifestEntry[] = JSON.parse(manifestJson);
+      console.log('[SessionManager] Received manifest from host:', manifest.length, 'songs');
+      this.storedManifest = manifest;
+      this.emit('manifest-received', [{ manifest }]);
+    } catch (err) {
+      console.error('[SessionManager] Failed to parse manifest:', err);
+    }
+  }
+
+  /**
+   * Get the current manifest (for both host and joiners)
+   */
+  getManifest(): SongManifestEntry[] {
+    return this.storedManifest;
   }
 
   /**
