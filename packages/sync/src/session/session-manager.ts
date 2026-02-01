@@ -193,6 +193,9 @@ export class SessionManager extends Observable {
     this.storedManifest = songManifest;
     console.log('[SessionManager] Stored manifest for sharing:', this.storedManifest.length, 'songs');
 
+    // Set active session BEFORE initializing (so isHosting getter works correctly)
+    this.activeSession = session;
+
     // Initialize session based on transport type
     switch (type) {
       case 'webrtc':
@@ -205,8 +208,6 @@ export class SessionManager extends Observable {
         await this.initLocalNetworkHost(session);
         break;
     }
-
-    this.activeSession = session;
 
     // Generate QR payload - ONLY connection info, no manifest
     // Manifest will be shared over WebRTC after connection is established
