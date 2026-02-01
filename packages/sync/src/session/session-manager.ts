@@ -189,6 +189,10 @@ export class SessionManager extends Observable {
       await this.initBootstrapHost(options.appBundle, options.songDocs, session.id);
     }
 
+    // Store manifest BEFORE initializing connection (so initContentSharing can access it)
+    this.storedManifest = songManifest;
+    console.log('[SessionManager] Stored manifest for sharing:', this.storedManifest.length, 'songs');
+
     // Initialize session based on transport type
     switch (type) {
       case 'webrtc':
@@ -203,9 +207,6 @@ export class SessionManager extends Observable {
     }
 
     this.activeSession = session;
-
-    // Store manifest for sharing over WebRTC (NOT in QR code)
-    this.storedManifest = songManifest;
 
     // Generate QR payload - ONLY connection info, no manifest
     // Manifest will be shared over WebRTC after connection is established
