@@ -529,22 +529,33 @@ export class SessionManager extends Observable {
 
     // Host: populate manifest map with stored manifest
     if (this.isHosting && this.storedManifest.length > 0) {
-      console.log('[SessionManager] Sharing manifest over WebRTC:', this.storedManifest.length, 'songs');
-      this.manifestMap.set('songs', JSON.stringify(this.storedManifest));
+      console.log('[SessionManager] Host setting manifest in Y.Map:', this.storedManifest.length, 'songs');
+      const manifestJson = JSON.stringify(this.storedManifest);
+      console.log('[SessionManager] Manifest JSON length:', manifestJson.length, 'chars');
+      this.manifestMap.set('songs', manifestJson);
+      console.log('[SessionManager] Manifest set in Y.Map, current value:', this.manifestMap.get('songs')?.substring(0, 100));
+    } else if (this.isHosting) {
+      console.log('[SessionManager] Host has no manifest to share (storedManifest.length:', this.storedManifest.length, ')');
     }
 
     // Joiner: observe manifest for updates
     if (!this.isHosting) {
+      console.log('[SessionManager] Joiner checking for existing manifest...');
       // Check if manifest already available
       const existingManifest = this.manifestMap.get('songs');
       if (existingManifest) {
+        console.log('[SessionManager] Joiner found existing manifest:', existingManifest.length, 'chars');
         this.handleManifestReceived(existingManifest);
+      } else {
+        console.log('[SessionManager] Joiner: no existing manifest, setting up observer');
       }
 
       // Observe for manifest updates
       this.manifestMap.observe((event) => {
+        console.log('[SessionManager] Joiner: manifestMap changed, keys:', Array.from(event.keysChanged));
         if (event.keysChanged.has('songs')) {
           const manifest = this.manifestMap?.get('songs');
+          console.log('[SessionManager] Joiner: songs key changed, manifest:', manifest ? manifest.length + ' chars' : 'null');
           if (manifest) {
             this.handleManifestReceived(manifest);
           }
