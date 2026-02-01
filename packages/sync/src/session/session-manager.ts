@@ -566,10 +566,13 @@ export class SessionManager extends Observable {
     }
 
     // Host: listen for content requests
-    if (this.isHosting && this.contentProvider) {
+    // Set up observer even if contentProvider not set yet (it will be set later via setContentProvider)
+    if (this.isHosting) {
+      console.log('[SessionManager] Host setting up content request observer');
       this.contentRequests.observe((event) => {
         event.changes.keys.forEach((change, songId) => {
           if (change.action === 'add' || change.action === 'update') {
+            console.log('[SessionManager] Content requested for:', songId);
             this.handleContentRequest(songId);
           }
         });
@@ -610,7 +613,10 @@ export class SessionManager extends Observable {
    * Handle a content request from a joiner (host only)
    */
   private async handleContentRequest(songId: string): Promise<void> {
-    if (!this.contentProvider || !this.songContentMap) return;
+    if (!this.contentProvider || !this.songContentMap) {
+      console.log('[SessionManager] Cannot handle content request - contentProvider:', !!this.contentProvider, 'songContentMap:', !!this.songContentMap);
+      return;
+    }
 
     // Check if we already have this content
     if (this.songContentMap.has(songId)) {
