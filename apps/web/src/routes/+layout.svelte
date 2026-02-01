@@ -3,6 +3,7 @@
   import { browser } from '$app/environment';
   import SessionOverlay from '$lib/components/SessionOverlay.svelte';
   import AppShell from '$lib/components/AppShell.svelte';
+  import Toast from '$lib/components/Toast.svelte';
   import { getSessionStore } from '$lib/stores/sessionStore.svelte';
   import { initializeAuth } from '$lib/stores/authStore.svelte';
   import { initializeNavigation } from '$lib/stores/navigationStore.svelte';
@@ -138,6 +139,7 @@
     {@render children()}
   </AppShell>
   <SessionOverlay />
+  <Toast />
 {/if}
 
 <style>

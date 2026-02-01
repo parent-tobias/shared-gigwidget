@@ -14,6 +14,20 @@
   let songSearchQuery = $state('');
   let togglingVisibility = $state(false);
 
+  // Edit collection info
+  let showEditModal = $state(false);
+  let editName = $state('');
+  let editDescription = $state('');
+  let savingInfo = $state(false);
+
+  // Collection song search/sort
+  let collectionSearchQuery = $state('');
+  let sortBy = $state<'title' | 'artist' | 'key' | 'order'>('order');
+  let sortDirection = $state<'asc' | 'desc'>('asc');
+
+  // Current user for ownership check
+  let currentUserId = $state<string | null>(null);
+
   const setId = $derived($page.params.id);
 
   $effect(() => {
@@ -39,6 +53,7 @@
       // Load all user songs for the add modal
       const users = await db.users.toArray();
       if (users.length > 0) {
+        currentUserId = users[0].id;
         allSongs = await SongRepository.getByOwner(users[0].id);
       }
 
@@ -163,9 +178,114 @@
     }
   }
 
-  // Limit display to prevent rendering 3000+ items
-  const MAX_DISPLAY = 50;
+  async function saveInfo() {
+    if (!set || !editName.trim() || savingInfo) return;
 
+    savingInfo = true;
+    try {
+      const { SongSetRepository } = await import('@gigwidget/db');
+      await SongSetRepository.update(set.id, {
+        name: editName.trim(),
+        description: editDescription.trim() || undefined,
+      });
+
+      set = {
+        ...set,
+        name: editName.trim(),
+        description: editDescription.trim() || undefined,
+        updatedAt: new Date(),
+      };
+
+      // Sync to cloud
+      const { syncSongSetToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongSetToCloud(set);
+
+      showEditModal = false;
+    } catch (err) {
+      console.error('Failed to update collection info:', err);
+    } finally {
+      savingInfo = false;
+    }
+  }
+
+  async function deleteCollection() {
+    if (!set || !isOwner) return;
+
+    if (!confirm(`Delete this ${set.isSetlist ? 'setlist' : 'collection'}? Songs will not be deleted.`)) {
+      return;
+    }
+
+    try {
+      const { SongSetRepository } = await import('@gigwidget/db');
+      await SongSetRepository.delete(set.id);
+
+      // Sync deletion to cloud
+      const { deleteSongSetFromCloud } = await import('$lib/stores/syncStore.svelte');
+      await deleteSongSetFromCloud(set.id);
+
+      // Navigate back to collections
+      const { goto } = await import('$app/navigation');
+      await goto('/collections');
+    } catch (err) {
+      console.error('Failed to delete collection:', err);
+      alert('Failed to delete collection');
+    }
+  }
+
+  function openEditModal() {
+    if (!set) return;
+    editName = set.name;
+    editDescription = set.description || '';
+    showEditModal = true;
+  }
+
+  // Check if current user is the owner
+  let isOwner = $derived(set?.userId === currentUserId);
+
+  // Limit display to prevent rendering 3000+ items
+  const MAX_DISPLAY = 100;
+
+  // Filtered and sorted collection songs
+  let displayedSetSongs = $derived.by(() => {
+    let songs = [...setSongs];
+
+    // Filter by search query
+    if (collectionSearchQuery.trim()) {
+      const query = collectionSearchQuery.toLowerCase().trim();
+      songs = songs.filter((s) =>
+        s.title.toLowerCase().includes(query) ||
+        (s.artist && s.artist.toLowerCase().includes(query)) ||
+        (s.key && s.key.toLowerCase().includes(query))
+      );
+    }
+
+    // Sort (unless viewing as a setlist with order preserved)
+    if (sortBy !== 'order' || !set?.isSetlist) {
+      songs.sort((a, b) => {
+        let comparison = 0;
+        switch (sortBy) {
+          case 'title':
+            comparison = a.title.localeCompare(b.title);
+            break;
+          case 'artist':
+            comparison = (a.artist || '').localeCompare(b.artist || '');
+            break;
+          case 'key':
+            comparison = (a.key || '').localeCompare(b.key || '');
+            break;
+          case 'order':
+          default:
+            // Preserve original order
+            return 0;
+        }
+        return sortDirection === 'asc' ? comparison : -comparison;
+      });
+    }
+
+    return songs;
+  });
+
+  // Available songs for adding (filtered)
   let filteredSongs = $derived.by(() => {
     if (!set) return [];
     let available = allSongs.filter((s) => !set.songIds.includes(s.id));
@@ -223,26 +343,40 @@
         {/if}
       </div>
       <div class="header-actions">
-        <button
-          class="btn btn-icon"
-          class:active={set.visibility === 'public'}
-          onclick={toggleVisibility}
-          disabled={togglingVisibility}
-          title={set.visibility === 'public' ? 'Make private' : 'Share publicly'}
-        >
-          {#if set.visibility === 'public'}
+        {#if isOwner}
+          <button class="btn btn-icon" onclick={openEditModal} title="Edit collection info">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="2" y1="12" x2="22" y2="12"/>
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
-          {:else}
+          </button>
+          <button class="btn btn-icon" onclick={deleteCollection} title="Delete collection">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
             </svg>
-          {/if}
-        </button>
+          </button>
+          <button
+            class="btn btn-icon"
+            class:active={set.visibility === 'public'}
+            onclick={toggleVisibility}
+            disabled={togglingVisibility}
+            title={set.visibility === 'public' ? 'Make private' : 'Share publicly'}
+          >
+            {#if set.visibility === 'public'}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="2" y1="12" x2="22" y2="12"/>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              </svg>
+            {:else}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            {/if}
+          </button>
+        {/if}
         <button class="btn btn-primary" onclick={() => (showAddModal = true)}>+ Add Songs</button>
       </div>
     </header>
@@ -254,19 +388,72 @@
           <button class="btn btn-primary" onclick={() => (showAddModal = true)}>Add Songs</button>
         </div>
       {:else}
-        <div class="song-list-header">
-          <span class="song-count">{setSongs.length} song{setSongs.length !== 1 ? 's' : ''}</span>
-          {#if set.isSetlist}
-            <span class="drag-hint">Drag to reorder</span>
-          {/if}
+        <div class="controls-section">
+          <div class="search-filter-row">
+            <div class="search-box-inline">
+              <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+              <input
+                type="text"
+                bind:value={collectionSearchQuery}
+                placeholder="Search songs..."
+                class="search-input-inline"
+              />
+              {#if collectionSearchQuery}
+                <button class="clear-search" onclick={() => collectionSearchQuery = ''}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              {/if}
+            </div>
+
+            <div class="sort-controls">
+              <select bind:value={sortBy} class="sort-select">
+                <option value="order">Original Order</option>
+                <option value="title">Title</option>
+                <option value="artist">Artist</option>
+                <option value="key">Key</option>
+              </select>
+              <button
+                class="btn btn-icon btn-icon-sm"
+                onclick={() => sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'}
+                title={sortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'}
+              >
+                {#if sortDirection === 'asc'}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <polyline points="19 12 12 19 5 12"/>
+                  </svg>
+                {:else}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="19" x2="12" y2="5"/>
+                    <polyline points="19 12 12 5 5 12"/>
+                  </svg>
+                {/if}
+              </button>
+            </div>
+          </div>
+
+          <div class="song-list-header">
+            <span class="song-count">
+              {displayedSetSongs.length} of {setSongs.length} song{setSongs.length !== 1 ? 's' : ''}
+            </span>
+            {#if set.isSetlist && sortBy === 'order'}
+              <span class="drag-hint">Drag to reorder</span>
+            {/if}
+          </div>
         </div>
 
         <ul class="song-list">
-          {#each setSongs as song, index (song.id)}
+          {#each displayedSetSongs as song, index (song.id)}
             <li
               class="song-item"
               class:dragging={draggedIndex === index}
-              draggable={set.isSetlist}
+              draggable={set.isSetlist && sortBy === 'order'}
               ondragstart={() => handleDragStart(index)}
               ondragover={(e) => handleDragOver(e, index)}
               ondrop={(e) => handleDrop(e, index)}
@@ -373,6 +560,47 @@
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick={() => { showAddModal = false; songSearchQuery = ''; }}>Done</button>
       </div>
+    </div>
+  </div>
+{/if}
+
+{#if showEditModal && set}
+  <div class="modal-overlay" onclick={() => (showEditModal = false)}>
+    <div class="modal modal-sm" onclick={(e) => e.stopPropagation()}>
+      <h2>Edit {set.isSetlist ? 'Setlist' : 'Collection'}</h2>
+      <form onsubmit={(e) => { e.preventDefault(); saveInfo(); }}>
+        <div class="form-group">
+          <label for="edit-name">Name</label>
+          <input
+            type="text"
+            id="edit-name"
+            bind:value={editName}
+            placeholder="Name"
+            required
+            disabled={savingInfo}
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="edit-description">Description <span class="optional">(optional)</span></label>
+          <textarea
+            id="edit-description"
+            bind:value={editDescription}
+            placeholder="What's this for?"
+            rows="3"
+            disabled={savingInfo}
+          ></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick={() => (showEditModal = false)} disabled={savingInfo}>
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary" disabled={savingInfo || !editName.trim()}>
+            {savingInfo ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 {/if}
@@ -786,6 +1014,120 @@
     margin-top: var(--spacing-lg);
   }
 
+  /* Controls section */
+  .controls-section {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .search-filter-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+    align-items: center;
+  }
+
+  .search-box-inline {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .search-input-inline {
+    width: 100%;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    padding-left: 2rem;
+    padding-right: 2rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 0.8125rem;
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text);
+  }
+
+  .search-input-inline:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .sort-controls {
+    display: flex;
+    gap: var(--spacing-xs);
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .sort-select {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 0.8125rem;
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text);
+    cursor: pointer;
+  }
+
+  .sort-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .btn-icon-sm {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+  }
+
+  /* Edit modal styles */
+  .modal-sm {
+    max-width: 400px;
+  }
+
+  .form-group {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: var(--spacing-xs);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .optional {
+    font-weight: 400;
+    color: var(--color-text-muted);
+  }
+
+  .form-group input[type="text"],
+  .form-group textarea {
+    width: 100%;
+    padding: var(--spacing-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text);
+  }
+
+  .form-group input:focus,
+  .form-group textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .form-group textarea {
+    resize: vertical;
+    min-height: 60px;
+    font-family: inherit;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-lg);
+  }
+
   @media (max-width: 640px) {
     .page-header {
       flex-direction: column;
@@ -794,6 +1136,15 @@
 
     .page-header .btn {
       align-self: flex-start;
+    }
+
+    .search-filter-row {
+      flex-direction: column;
+    }
+
+    .sort-controls {
+      width: 100%;
+      justify-content: flex-end;
     }
   }
 </style>

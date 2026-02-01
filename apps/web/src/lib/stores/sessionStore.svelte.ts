@@ -157,10 +157,14 @@ async function initSessionManager(user: User): Promise<void> {
       // Don't clear wasEjected here - let it persist so UI can show message
     });
 
-    sessionManager.on('session-ended-by-host', () => {
+    sessionManager.on('session-ended-by-host', async () => {
       console.log('[Session] Ejected by host');
       wasEjected = true;
       error = 'Session ended by host';
+
+      // Show toast notification
+      const { toast } = await import('./toastStore.svelte');
+      toast.warning('Session ended by host', 5000);
     });
 
     sessionManager.on('peers-changed', ({ count }: any) => {
