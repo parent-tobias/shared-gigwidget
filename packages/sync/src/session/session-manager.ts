@@ -84,6 +84,9 @@ export class SessionManager extends Observable {
   // Transpose state sharing (host controls, joiners observe)
   private transposeStateMap: Y.Map<number> | null = null;
 
+  // Session control (host signals session end to eject joiners)
+  private sessionControlMap: Y.Map<number> | null = null;
+
   readonly user: User;
   private readonly signalingServers: string[];
   private readonly defaultExpiryMs: number;
@@ -362,6 +365,14 @@ export class SessionManager extends Observable {
    * Leave the current session
    */
   async leaveSession(): Promise<void> {
+    // If host is ending the session, signal all joiners first
+    if (this.isHosting && this.sessionControlMap) {
+      console.log('[SessionManager] Host ending session, signaling all joiners to leave');
+      this.sessionControlMap.set('sessionEnded', Date.now());
+      // Give joiners a moment to receive the signal before destroying connections
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
     if (this.webrtcProvider) {
       this.webrtcProvider.destroy();
       this.webrtcProvider = null;
@@ -393,6 +404,16 @@ export class SessionManager extends Observable {
     if (wasActive) {
       this.emit('session-left', [{}]);
     }
+  }
+
+  /**
+   * Handle session ended by host (joiner only)
+   * Called when host broadcasts session-ended signal
+   */
+  private async handleHostEndedSession(): Promise<void> {
+    console.log('[SessionManager] Session ended by host, leaving...');
+    this.emit('session-ended-by-host', [{}]);
+    await this.leaveSession();
   }
 
   /**
@@ -528,6 +549,7 @@ export class SessionManager extends Observable {
     this.songContentMap = this.sessionDoc.getMap('songContent');
     this.contentRequests = this.sessionDoc.getMap('contentRequests');
     this.transposeStateMap = this.sessionDoc.getMap('transposeState');
+    this.sessionControlMap = this.sessionDoc.getMap('sessionControl');
 
     // Host: populate manifest map with stored manifest
     if (this.isHosting && this.storedManifest.length > 0) {
@@ -576,6 +598,18 @@ export class SessionManager extends Observable {
             this.handleContentRequest(songId);
           }
         });
+      });
+    }
+
+    // Joiner: listen for session end signal from host
+    if (!this.isHosting) {
+      console.log('[SessionManager] Joiner setting up session control observer');
+      this.sessionControlMap.observe((event) => {
+        if (event.keysChanged.has('sessionEnded')) {
+          const timestamp = this.sessionControlMap?.get('sessionEnded');
+          console.log('[SessionManager] Session ended by host at:', timestamp);
+          this.handleHostEndedSession();
+        }
       });
     }
   }

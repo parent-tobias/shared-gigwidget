@@ -28,6 +28,8 @@ export interface SessionState {
   isMinimized: boolean;
   /** Error message if any */
   error: string | null;
+  /** Whether the user was ejected by the host */
+  wasEjected: boolean;
 }
 
 // Singleton state - persists across navigation
@@ -40,6 +42,7 @@ let qrPayload = $state<QRSessionPayload | null>(null);
 let qrDataUrl = $state<string | null>(null);
 let isMinimized = $state(false);
 let error = $state<string | null>(null);
+let wasEjected = $state(false);
 
 // Internal references
 let sessionManager: any = null;
@@ -151,6 +154,13 @@ async function initSessionManager(user: User): Promise<void> {
       participants = [];
       qrPayload = null;
       qrDataUrl = null;
+      // Don't clear wasEjected here - let it persist so UI can show message
+    });
+
+    sessionManager.on('session-ended-by-host', () => {
+      console.log('[Session] Ejected by host');
+      wasEjected = true;
+      error = 'Session ended by host';
     });
 
     sessionManager.on('peers-changed', ({ count }: any) => {
@@ -215,6 +225,7 @@ async function startSession(
   }
 
   error = null;
+  wasEjected = false;
   status = 'connecting';
 
   try {
@@ -255,6 +266,7 @@ async function joinSession(user: User, payload: QRSessionPayload): Promise<void>
   }
 
   error = null;
+  wasEjected = false;
   status = 'connecting';
 
   try {
@@ -273,6 +285,7 @@ async function leaveSession(): Promise<void> {
   if (sessionManager) {
     await sessionManager.leaveSession();
   }
+  wasEjected = false;
   bootstrapContext = null;
 }
 
@@ -429,6 +442,7 @@ export function getSessionStore() {
     get qrDataUrl() { return qrDataUrl; },
     get isMinimized() { return isMinimized; },
     get error() { return error; },
+    get wasEjected() { return wasEjected; },
 
     // Actions
     startSession,
