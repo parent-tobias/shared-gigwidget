@@ -44,6 +44,7 @@
   let isSessionSong = $state(false);
   let sessionStore: ReturnType<typeof import('$lib/stores/sessionStore.svelte').getSessionStore> | null = null;
   let transposeCleanup: (() => void) | null = null;
+  let contentUpdateCleanup: (() => void) | null = null;
 
   // Navigation context (for breadcrumbs)
   const fromContext = $derived($page.url.searchParams.get('from'));
@@ -118,6 +119,10 @@
       if (transposeCleanup) {
         transposeCleanup();
         transposeCleanup = null;
+      }
+      if (contentUpdateCleanup) {
+        contentUpdateCleanup();
+        contentUpdateCleanup = null;
       }
       if (indexeddbProvider) {
         indexeddbProvider.destroy();
@@ -264,6 +269,31 @@
               console.log('[SongViewer] Transpose update from host:', semitones);
               transposeSemitones = semitones;
             });
+
+            // Observe host's content edits (for joiners)
+            contentUpdateCleanup = sessionStore.observeContentUpdates(songId, (updatedContent) => {
+              console.log('[SongViewer] Content update from host for:', songId);
+              // Update the arrangement content
+              if (selectedArrangement) {
+                selectedArrangement = {
+                  ...selectedArrangement,
+                  content: updatedContent,
+                  updatedAt: new Date(),
+                };
+                // If in edit mode, update editor content
+                if (editMode) {
+                  editorContent = updatedContent;
+                }
+              }
+              // Update arrangements array
+              if (arrangements.length > 0) {
+                arrangements = [{
+                  ...arrangements[0],
+                  content: updatedContent,
+                  updatedAt: new Date(),
+                }];
+              }
+            });
           }
         }
       }
@@ -364,6 +394,12 @@
       // Sync to cloud if authenticated
       const { syncSongToCloud } = await import('$lib/stores/syncStore.svelte');
       await syncSongToCloud(song);
+
+      // Sync to active session if hosting
+      if (sessionStore?.isActive && sessionStore?.isHosting && song) {
+        console.log('[SongViewer] Syncing edited content to session:', song.id);
+        sessionStore.updateSharedContent(song.id, editorContent);
+      }
     } catch (err) {
       console.error('Failed to save:', err);
     } finally {

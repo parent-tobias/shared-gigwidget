@@ -731,6 +731,37 @@ export class SessionManager extends Observable {
     return this.songContentMap?.has(songId) ?? false;
   }
 
+  /**
+   * Update shared song content (host only - syncs to all joiners)
+   * Call this when the host edits a song to propagate changes in real-time
+   */
+  updateSharedContent(songId: string, content: string): void {
+    if (!this.songContentMap || !this.isHosting) return;
+    console.log('[SessionManager] Host updating shared content for:', songId);
+    this.songContentMap.set(songId, content);
+  }
+
+  /**
+   * Observe content updates for a song (joiner only)
+   * Returns a cleanup function to stop observing
+   */
+  observeContentUpdates(songId: string, callback: (content: string) => void): () => void {
+    if (!this.songContentMap) return () => {};
+
+    const observer = (event: Y.YMapEvent<string>) => {
+      if (event.keysChanged.has(songId)) {
+        const updatedContent = this.songContentMap?.get(songId);
+        if (updatedContent) {
+          console.log('[SessionManager] Content updated for:', songId);
+          callback(updatedContent);
+        }
+      }
+    };
+
+    this.songContentMap.observe(observer);
+    return () => this.songContentMap?.unobserve(observer);
+  }
+
   // ============================================================================
   // Transpose State Sharing
   // ============================================================================

@@ -346,6 +346,24 @@ function observeTranspose(songId: string, callback: (semitones: number) => void)
 }
 
 /**
+ * Update shared song content (host only - syncs to all joiners)
+ * Call this when the host edits a song to propagate changes in real-time
+ */
+function updateSharedContent(songId: string, content: string): void {
+  if (!sessionManager || !isHosting) return;
+  sessionManager.updateSharedContent(songId, content);
+}
+
+/**
+ * Observe content updates for a song (joiner only)
+ * Returns a cleanup function to stop observing
+ */
+function observeContentUpdates(songId: string, callback: (content: string) => void): () => void {
+  if (!sessionManager) return () => {};
+  return sessionManager.observeContentUpdates(songId, callback);
+}
+
+/**
  * Get the current manifest (songs shared in this session)
  */
 function getManifest(): SongManifestEntry[] {
@@ -462,6 +480,10 @@ export function getSessionStore() {
     setTranspose,
     getTranspose,
     observeTranspose,
+
+    // Content editing sync
+    updateSharedContent,
+    observeContentUpdates,
 
     // Bootstrap support
     joinWithBootstrapContext,
