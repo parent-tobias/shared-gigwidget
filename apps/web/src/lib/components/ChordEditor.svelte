@@ -12,7 +12,7 @@
 
   let { chordName, instrumentId, existingFingering, onSave, onCancel }: Props = $props();
 
-  // Form state
+  // Form state - provide default structure for new chords
   let chordData = $state<any>(
     existingFingering
       ? {
@@ -21,7 +21,12 @@
           barres: existingFingering.barres,
           baseFret: existingFingering.baseFret,
         }
-      : undefined
+      : {
+          positions: [],
+          fingers: [],
+          barres: [],
+          baseFret: 1,
+        }
   );
   let saving = $state(false);
   let error = $state<string | null>(null);
@@ -125,7 +130,7 @@
       <chord-editor
         chord-name={chordName}
         instrument={instrumentId || 'guitar'}
-        chord={chordData ? JSON.stringify(chordData) : undefined}
+        chord={JSON.stringify(chordData)}
         onchord-changed={handleChordChange}
       ></chord-editor>
     {:else}
