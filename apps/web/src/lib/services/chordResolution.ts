@@ -171,6 +171,19 @@ class WebChordDataProvider implements ChordDataProvider {
   // Dynamic generation (chord-component)
   async getDynamicChord(chordName: string, instrumentId: string): Promise<ResolvedChord | null> {
     try {
+      // Check if custom elements are already defined before importing
+      // If not, import the package (which will register them)
+      if (typeof window !== 'undefined' && !customElements.get('chord-diagram')) {
+        try {
+          await import('@parent-tobias/chord-component');
+        } catch (importErr) {
+          // Ignore "already defined" errors
+          if (!(importErr instanceof DOMException && importErr.message.includes('already been defined'))) {
+            throw importErr;
+          }
+        }
+      }
+
       // Import chord-component service
       const { chordDataService } = await import('@parent-tobias/chord-component');
 
