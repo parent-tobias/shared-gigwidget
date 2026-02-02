@@ -94,7 +94,20 @@
     error = null;
 
     try {
-      const { indexedDBService } = await import('@parent-tobias/chord-component');
+      // Import indexedDBService, ignoring custom element re-registration errors
+      let indexedDBService;
+      try {
+        const chordComponent = await import('@parent-tobias/chord-component');
+        indexedDBService = chordComponent.indexedDBService;
+      } catch (importErr) {
+        // Ignore "already defined" errors from custom elements
+        if (importErr instanceof DOMException && importErr.message.includes('already been defined')) {
+          const chordComponent = await import('@parent-tobias/chord-component');
+          indexedDBService = chordComponent.indexedDBService;
+        } else {
+          throw importErr;
+        }
+      }
 
       // Retrieve current chord data from chord-component's IndexedDB
       console.log('[SystemChordEditor] Retrieving chord:', { userId: user.id, chordName, instrumentId });

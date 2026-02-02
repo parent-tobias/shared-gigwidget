@@ -184,8 +184,20 @@ class WebChordDataProvider implements ChordDataProvider {
         }
       }
 
-      // Import chord-component service
-      const { chordDataService } = await import('@parent-tobias/chord-component');
+      // Import chord-component service, with error handling for re-registration
+      let chordDataService;
+      try {
+        const chordComponent = await import('@parent-tobias/chord-component');
+        chordDataService = chordComponent.chordDataService;
+      } catch (importErr) {
+        // Ignore "already defined" errors from custom elements
+        if (importErr instanceof DOMException && importErr.message.includes('already been defined')) {
+          const chordComponent = await import('@parent-tobias/chord-component');
+          chordDataService = chordComponent.chordDataService;
+        } else {
+          throw importErr;
+        }
+      }
 
       const chordData = await chordDataService.getChord(instrumentId, chordName, false);
 

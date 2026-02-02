@@ -90,7 +90,21 @@
     try {
       const { LocalFingeringRepository } = await import('@gigwidget/db');
       const { generateId } = await import('@gigwidget/core');
-      const { indexedDBService } = await import('@parent-tobias/chord-component');
+
+      // Import indexedDBService, ignoring custom element re-registration errors
+      let indexedDBService;
+      try {
+        const chordComponent = await import('@parent-tobias/chord-component');
+        indexedDBService = chordComponent.indexedDBService;
+      } catch (importErr) {
+        // Ignore "already defined" errors from custom elements
+        if (importErr instanceof DOMException && importErr.message.includes('already been defined')) {
+          const chordComponent = await import('@parent-tobias/chord-component');
+          indexedDBService = chordComponent.indexedDBService;
+        } else {
+          throw importErr;
+        }
+      }
 
       const userId = user.id;
       const targetInstrumentId = instrumentId || 'guitar';
