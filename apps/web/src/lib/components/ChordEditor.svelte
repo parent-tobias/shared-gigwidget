@@ -136,8 +136,8 @@
         chord-name={chordName}
         instrument={instrumentId || 'guitar'}
         chord={JSON.stringify(chordData)}
-        on:chord-changed={handleChordChange}
-        on:chord-saved={handleChordSaved}
+        onchord-changed={handleChordChange}
+        onchord-saved={handleChordSaved}
       ></chord-editor>
     {:else}
       <div class="loading">Loading chord editor...</div>
