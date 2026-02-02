@@ -20,9 +20,16 @@
   let canCreateSystemChords = $derived(user && hasPermission(user, 'create_system_chords'));
 
   // Form state
-  let positions = $state<number[]>(existingSystemChord?.positions ?? [0, 0, 0, 0]);
-  let fingers = $state<number[]>(existingSystemChord?.fingers ?? []);
-  let baseFret = $state(existingSystemChord?.base_fret ?? 1);
+  let chordData = $state<any>(
+    existingSystemChord
+      ? {
+          positions: existingSystemChord.positions,
+          fingers: existingSystemChord.fingers,
+          barres: existingSystemChord.barres,
+          baseFret: existingSystemChord.base_fret,
+        }
+      : undefined
+  );
   let description = $state(existingSystemChord?.description ?? '');
   let saving = $state(false);
   let error = $state<string | null>(null);
@@ -57,14 +64,18 @@
     }
   }
 
+  function handleChordChange(e: CustomEvent) {
+    chordData = e.detail;
+  }
+
   async function saveSystemChord() {
     if (!canCreateSystemChords || !user) {
       error = 'You do not have permission to create system chords';
       return;
     }
 
-    if (positions.length === 0) {
-      error = 'Please add at least one fret position';
+    if (!chordData) {
+      error = 'No chord data to save';
       return;
     }
 
@@ -77,10 +88,10 @@
           id: existingSystemChord?.id,
           chordName,
           instrumentId,
-          positions,
-          fingers: fingers.length > 0 ? fingers : undefined,
-          barres: undefined, // TODO: Add barres support
-          baseFret,
+          positions: chordData.positions,
+          fingers: chordData.fingers,
+          barres: chordData.barres,
+          baseFret: chordData.baseFret || 1,
           description: description || undefined,
         },
         user.displayName
@@ -134,30 +145,6 @@
       saving = false;
     }
   }
-
-  function updatePosition(index: number, value: number) {
-    const newPositions = [...positions];
-    newPositions[index] = value;
-    positions = newPositions;
-  }
-
-  function addString() {
-    positions = [...positions, 0];
-    if (fingers.length > 0) {
-      fingers = [...fingers, 0];
-    }
-  }
-
-  function removeString(index: number) {
-    positions = positions.filter((_, i) => i !== index);
-    if (fingers.length > 0) {
-      fingers = fingers.filter((_, i) => i !== index);
-    }
-  }
-
-  function formatPositions(pos: number[]): string {
-    return pos.map((p) => (p === -1 ? 'x' : p === 0 ? '0' : p.toString())).join(' ');
-  }
 </script>
 
 {#if !canCreateSystemChords}
@@ -178,84 +165,27 @@
     {/if}
 
     <div class="editor-content">
-      <div class="preview-section">
-        <h4>Preview</h4>
-        {#if componentReady && positions.length > 0}
-          <chord-diagram
-            chord={JSON.stringify({
-              positions,
-              fingers: fingers.length > 0 ? fingers : undefined,
-              baseFret,
-            })}
-            size="large"
-          ></chord-diagram>
-        {:else}
-          <div class="positions-text">{formatPositions(positions)}</div>
-        {/if}
-      </div>
+      {#if componentReady}
+        <chord-editor
+          chord-name={chordName}
+          instrument={instrumentId}
+          chord={chordData ? JSON.stringify(chordData) : undefined}
+          onchord-changed={handleChordChange}
+        ></chord-editor>
+      {:else}
+        <div class="loading">Loading chord editor...</div>
+      {/if}
+    </div>
 
-      <div class="controls-section">
-        <div class="form-group">
-          <label for="instrument">Instrument</label>
-          <input type="text" id="instrument" value={instrumentId} disabled />
-        </div>
-
-        <div class="form-group">
-          <label for="baseFret">Base Fret</label>
-          <input
-            type="number"
-            id="baseFret"
-            bind:value={baseFret}
-            min="1"
-            max="20"
-            disabled={saving}
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="description">Description (optional)</label>
-          <textarea
-            id="description"
-            bind:value={description}
-            placeholder="Describe this chord variation (e.g., 'Easy beginner version')"
-            rows="3"
-            disabled={saving}
-          ></textarea>
-        </div>
-
-        <div class="form-group">
-          <label>Fret Positions</label>
-          <div class="positions-controls">
-            {#each positions as position, index (index)}
-              <div class="position-row">
-                <span class="string-label">String {index + 1}:</span>
-                <input
-                  type="number"
-                  value={position}
-                  onchange={(e) => updatePosition(index, parseInt(e.currentTarget.value) || 0)}
-                  min="-1"
-                  max="24"
-                  disabled={saving}
-                  placeholder="0"
-                />
-                <button
-                  type="button"
-                  class="btn-icon"
-                  onclick={() => removeString(index)}
-                  disabled={saving || positions.length <= 1}
-                  title="Remove string"
-                >
-                  ×
-                </button>
-              </div>
-            {/each}
-          </div>
-          <button type="button" class="btn btn-sm btn-secondary" onclick={addString} disabled={saving}>
-            + Add String
-          </button>
-          <p class="help-text">Use -1 for muted strings, 0 for open strings</p>
-        </div>
-      </div>
+    <div class="form-group">
+      <label for="description">Description (optional)</label>
+      <textarea
+        id="description"
+        bind:value={description}
+        placeholder="Describe this chord variation (e.g., 'Easy beginner version')"
+        rows="3"
+        disabled={saving}
+      ></textarea>
     </div>
 
     <div class="editor-actions">
@@ -271,7 +201,7 @@
         </button>
       {/if}
 
-      <button type="button" class="btn btn-primary" onclick={saveSystemChord} disabled={saving}>
+      <button type="button" class="btn btn-primary" onclick={saveSystemChord} disabled={saving || !chordData}>
         {saving ? 'Saving...' : 'Save System Chord'}
       </button>
     </div>
@@ -332,48 +262,27 @@
   }
 
   .editor-content {
-    display: grid;
-    grid-template-columns: 200px 1fr;
-    gap: var(--spacing-lg);
+    min-height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     margin-bottom: var(--spacing-lg);
   }
 
-  @media (max-width: 768px) {
-    .editor-content {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  .preview-section {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .preview-section h4 {
-    margin: 0 0 var(--spacing-sm) 0;
-    font-size: 0.875rem;
+  .loading {
     color: var(--color-text-muted);
   }
 
-  .positions-text {
-    font-family: monospace;
-    font-size: 1rem;
-    padding: var(--spacing-md);
-    background-color: var(--color-surface);
-    border-radius: var(--radius-sm);
-  }
-
-  .controls-section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
+  chord-editor {
+    display: block;
+    width: 100%;
   }
 
   .form-group {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-lg);
   }
 
   .form-group label {
@@ -382,8 +291,6 @@
     color: var(--color-text-muted);
   }
 
-  .form-group input[type='text'],
-  .form-group input[type='number'],
   .form-group textarea {
     width: 100%;
     padding: var(--spacing-sm);
@@ -391,61 +298,7 @@
     border: 1px solid var(--color-border);
     background-color: var(--color-surface);
     font-family: inherit;
-  }
-
-  .form-group textarea {
     resize: vertical;
-  }
-
-  .positions-controls {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-xs);
-  }
-
-  .position-row {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-  }
-
-  .string-label {
-    min-width: 70px;
-    font-size: 0.875rem;
-  }
-
-  .position-row input {
-    flex: 1;
-    max-width: 100px;
-  }
-
-  .btn-icon {
-    background: none;
-    border: none;
-    font-size: 1.5rem;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    padding: 0;
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .btn-icon:hover:not(:disabled) {
-    color: var(--color-primary);
-  }
-
-  .btn-icon:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-  }
-
-  .help-text {
-    font-size: 0.75rem;
-    color: var(--color-text-muted);
-    margin: 0;
   }
 
   .editor-actions {
@@ -463,16 +316,5 @@
 
   .btn-danger:hover:not(:disabled) {
     background-color: #d32f2f;
-  }
-
-  .btn-sm {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    font-size: 0.875rem;
-  }
-
-  chord-diagram {
-    display: block;
-    width: 150px;
-    height: 180px;
   }
 </style>
