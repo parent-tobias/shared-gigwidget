@@ -62,10 +62,20 @@
 
   async function loadChordComponent() {
     try {
+      // Check if custom elements are already defined
+      if (customElements.get('chord-editor')) {
+        componentReady = true;
+        return;
+      }
+
       await import('@parent-tobias/chord-component');
       componentReady = true;
     } catch (err) {
       console.error('Failed to load chord-component:', err);
+      // If error is about already defined, component is still ready
+      if (err instanceof DOMException && err.message.includes('already been defined')) {
+        componentReady = true;
+      }
     }
   }
 

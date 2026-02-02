@@ -27,4 +27,5 @@ export {
   LocalFingeringRepository,
   SongMetadataRepository,
   SongSetRepository,
+  SongChordOverrideRepository,
 } from './repositories/index.js';
