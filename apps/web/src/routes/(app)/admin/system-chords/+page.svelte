@@ -218,7 +218,11 @@
                 <td class="positions">{formatPositions(chord.positions)}</td>
                 <td>{chord.base_fret}</td>
                 <td class="description">
-                  {chord.description ?? <span class="no-description">—</span>}
+                  {#if chord.description}
+                    {chord.description}
+                  {:else}
+                    <span class="no-description">—</span>
+                  {/if}
                 </td>
                 <td>{chord.created_by_name}</td>
                 <td>{formatDate(chord.created_at)}</td>
