@@ -87,14 +87,15 @@
       const userId = users[0].id;
       const targetInstrumentId = instrumentId || 'guitar';
 
+      // Convert proxy objects to plain objects/arrays for IndexedDB
       const fingering: LocalFingering = {
         id: existingFingering?.id ?? generateId(),
         userId,
         chordName,
         instrumentId: targetInstrumentId,
-        positions: chordData.positions,
-        fingers: chordData.fingers,
-        barres: chordData.barres,
+        positions: [...(chordData.positions || [])],
+        fingers: chordData.fingers ? [...chordData.fingers] : undefined,
+        barres: chordData.barres ? chordData.barres.map((b: any) => ({ ...b })) : undefined,
         baseFret: chordData.baseFret || 1,
         isDefault: existingFingering?.isDefault ?? false,
         createdAt: existingFingering?.createdAt ?? new Date(),
