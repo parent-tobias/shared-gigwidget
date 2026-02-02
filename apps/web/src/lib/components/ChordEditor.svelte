@@ -92,7 +92,9 @@
       const targetInstrumentId = instrumentId || 'guitar';
 
       // Retrieve current chord data from chord-component's IndexedDB
+      console.log('[ChordEditor] Retrieving chord:', { userId, chordName, targetInstrumentId });
       const currentChord = await indexedDBService.getUserChord(userId, chordName, targetInstrumentId);
+      console.log('[ChordEditor] Retrieved chord data:', currentChord);
 
       if (!currentChord || !currentChord.positions || currentChord.positions.length === 0) {
         error = 'No chord data to save. Please create a chord first.';
@@ -116,8 +118,10 @@
 
       if (existingFingering) {
         await LocalFingeringRepository.update(fingering.id, fingering);
+        console.log('[ChordEditor] Updated fingering:', fingering);
       } else {
         await LocalFingeringRepository.create(fingering);
+        console.log('[ChordEditor] Created fingering:', fingering);
       }
 
       onSave?.(fingering);

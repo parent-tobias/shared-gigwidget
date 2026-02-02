@@ -92,7 +92,9 @@
       const { indexedDBService } = await import('@parent-tobias/chord-component');
 
       // Retrieve current chord data from chord-component's IndexedDB
+      console.log('[SystemChordEditor] Retrieving chord:', { userId: user.id, chordName, instrumentId });
       const currentChord = await indexedDBService.getUserChord(user.id, chordName, instrumentId);
+      console.log('[SystemChordEditor] Retrieved chord data:', currentChord);
 
       if (!currentChord || !currentChord.positions || currentChord.positions.length === 0) {
         error = 'No chord data to save. Please create a chord first.';
@@ -100,25 +102,27 @@
         return;
       }
 
-      const { error: saveError } = await upsertSystemChord(
-        {
-          id: existingSystemChord?.id,
-          chordName,
-          instrumentId,
-          positions: [...currentChord.positions],
-          fingers: currentChord.fingers ? [...currentChord.fingers] : undefined,
-          barres: currentChord.barres ? currentChord.barres.map((b: any) => ({ ...b })) : undefined,
-          baseFret: currentChord.baseFret || 1,
-          description: description || undefined,
-        },
-        user.displayName
-      );
+      const chordToSave = {
+        id: existingSystemChord?.id,
+        chordName,
+        instrumentId,
+        positions: [...currentChord.positions],
+        fingers: currentChord.fingers ? [...currentChord.fingers] : undefined,
+        barres: currentChord.barres ? currentChord.barres.map((b: any) => ({ ...b })) : undefined,
+        baseFret: currentChord.baseFret || 1,
+        description: description || undefined,
+      };
+
+      console.log('[SystemChordEditor] Saving to Supabase:', chordToSave);
+      const { error: saveError } = await upsertSystemChord(chordToSave, user.displayName);
 
       if (saveError) {
         error = 'Failed to save system chord';
-        console.error(saveError);
+        console.error('[SystemChordEditor] Save error:', saveError);
         return;
       }
+
+      console.log('[SystemChordEditor] Successfully saved system chord');
 
       // Clear cache for this chord
       clearSystemChordCacheForChord(instrumentId, chordName);
