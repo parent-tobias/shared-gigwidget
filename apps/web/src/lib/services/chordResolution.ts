@@ -1,16 +1,19 @@
 /**
  * Web-specific chord resolution with Supabase integration
  *
- * This module extends the core ChordResolutionService with Supabase support
- * for fetching system chords created by moderators.
+ * This module implements the ChordDataProvider interface and injects it
+ * into the core ChordResolutionService with full Supabase support.
  */
 
 import {
   chordResolutionService,
+  type ChordDataProvider,
   type ResolvedChord,
   type ChordResolutionOptions,
   type SongChordResolutionOptions,
   type SystemChord,
+  type LocalFingering,
+  type SongChordOverride,
 } from '@gigwidget/core';
 import { getSystemChord } from '../stores/supabaseStore';
 
@@ -48,91 +51,167 @@ export function clearSystemChordCacheForChord(
 }
 
 // ============================================================================
-// Supabase Integration
+// Web Data Provider Implementation
 // ============================================================================
 
-/**
- * Fetch system chord from Supabase with caching.
- */
-async function fetchSystemChordWithCache(
-  chordName: string,
-  instrumentId: string
-): Promise<SystemChord | null> {
-  const cacheKey = `${instrumentId}:${chordName}`;
-
-  // Check cache first
-  if (systemChordCache.has(cacheKey)) {
-    return systemChordCache.get(cacheKey) ?? null;
-  }
-
-  // Fetch from Supabase
-  try {
-    const { data, error } = await getSystemChord(chordName, instrumentId);
-
-    if (error) {
-      console.error('[ChordResolution] Error fetching system chord:', error);
-      // Don't cache errors
+class WebChordDataProvider implements ChordDataProvider {
+  // Song-level overrides
+  async getSongChordOverride(
+    userId: string,
+    songId: string,
+    chordName: string
+  ): Promise<SongChordOverride | null> {
+    try {
+      const { SongChordOverrideRepository } = await import('@gigwidget/db');
+      return (await SongChordOverrideRepository.getForChord(userId, songId, chordName)) ?? null;
+    } catch (err) {
+      console.error('[ChordResolution] Failed to get song chord override:', err);
       return null;
     }
+  }
 
-    // Convert Supabase format to SystemChord
-    const systemChord: SystemChord | null = data
-      ? {
-          id: data.id,
-          chordName: data.chord_name,
-          instrumentId: data.instrument_id,
-          positions: data.positions,
-          fingers: data.fingers ?? undefined,
-          barres: data.barres
-            ? data.barres.map((b: any) => ({
+  // User custom chords
+  async getUserCustomChord(
+    userId: string,
+    chordName: string,
+    instrumentId: string
+  ): Promise<LocalFingering | null> {
+    try {
+      const { LocalFingeringRepository } = await import('@gigwidget/db');
+      return (
+        (await LocalFingeringRepository.getDefault(userId, chordName, instrumentId)) ?? null
+      );
+    } catch (err) {
+      console.error('[ChordResolution] Failed to get user custom chord:', err);
+      return null;
+    }
+  }
+
+  async getUserCustomChordById(id: string): Promise<LocalFingering | null> {
+    try {
+      const { LocalFingeringRepository } = await import('@gigwidget/db');
+      return (await LocalFingeringRepository.getById(id)) ?? null;
+    } catch (err) {
+      console.error('[ChordResolution] Failed to get user custom chord by ID:', err);
+      return null;
+    }
+  }
+
+  async getUserCustomChords(
+    userId: string,
+    chordName: string,
+    instrumentId: string
+  ): Promise<LocalFingering[]> {
+    try {
+      const { LocalFingeringRepository } = await import('@gigwidget/db');
+      const allUserChords = await LocalFingeringRepository.getByChord(userId, chordName);
+      return allUserChords.filter((c) => c.instrumentId === instrumentId);
+    } catch (err) {
+      console.error('[ChordResolution] Failed to get user custom chords:', err);
+      return [];
+    }
+  }
+
+  // System override chords (with Supabase integration)
+  async getSystemOverrideChord(
+    chordName: string,
+    instrumentId: string
+  ): Promise<SystemChord | null> {
+    const cacheKey = `${instrumentId}:${chordName}`;
+
+    // Check cache first
+    if (systemChordCache.has(cacheKey)) {
+      return systemChordCache.get(cacheKey) ?? null;
+    }
+
+    // Fetch from Supabase
+    try {
+      const { data, error } = await getSystemChord(chordName, instrumentId);
+
+      if (error) {
+        console.error('[ChordResolution] Error fetching system chord:', error);
+        // Don't cache errors
+        return null;
+      }
+
+      // Convert Supabase format to SystemChord
+      const systemChord: SystemChord | null = data
+        ? {
+            id: data.id,
+            chordName: data.chord_name,
+            instrumentId: data.instrument_id,
+            positions: data.positions,
+            fingers: data.fingers ?? undefined,
+            barres: data.barres
+              ? data.barres.map((b: any) => ({
+                  fret: b.fret,
+                  fromString: b.fromString,
+                  toString: b.toString,
+                }))
+              : undefined,
+            baseFret: data.base_fret,
+            createdBy: data.created_by,
+            createdByName: data.created_by_name,
+            description: data.description ?? undefined,
+            createdAt: new Date(data.created_at),
+            updatedAt: new Date(data.updated_at),
+          }
+        : null;
+
+      // Cache the result (including null for "not found")
+      systemChordCache.set(cacheKey, systemChord);
+
+      return systemChord;
+    } catch (err) {
+      console.error('[ChordResolution] Exception fetching system chord:', err);
+      return null;
+    }
+  }
+
+  // Dynamic generation (chord-component)
+  async getDynamicChord(chordName: string, instrumentId: string): Promise<ResolvedChord | null> {
+    try {
+      // Import chord-component service
+      const { chordDataService } = await import('@parent-tobias/chord-component');
+
+      const chordData = await chordDataService.getChord(instrumentId, chordName, false);
+
+      if (chordData && chordData.fingers && chordData.fingers.length > 0) {
+        // Convert from chord-component format to our format
+        return {
+          chordName,
+          instrumentId,
+          positions: chordData.fingers.map(([, fret]: [number, number]) => fret),
+          fingers: chordData.fingers.map(() => 0), // chord-component doesn't specify finger numbers
+          barres: chordData.barres
+            ? chordData.barres.map((b: any) => ({
                 fret: b.fret,
                 fromString: b.fromString,
                 toString: b.toString,
               }))
-            : undefined,
-          baseFret: data.base_fret,
-          createdBy: data.created_by,
-          createdByName: data.created_by_name,
-          description: data.description ?? undefined,
-          createdAt: new Date(data.created_at),
-          updatedAt: new Date(data.updated_at),
-        }
-      : null;
+            : [],
+          baseFret: chordData.position ?? 1,
+          source: 'dynamic',
+        };
+      }
 
-    // Cache the result (including null for "not found")
-    systemChordCache.set(cacheKey, systemChord);
-
-    return systemChord;
-  } catch (err) {
-    console.error('[ChordResolution] Exception fetching system chord:', err);
-    return null;
+      return null;
+    } catch (err) {
+      console.error('[ChordResolution] Failed to get dynamic chord:', err);
+      return null;
+    }
   }
 }
 
-/**
- * Override the core service's getSystemOverrideChord method.
- * This is done by monkey-patching the private method.
- */
-function injectSupabaseIntegration(): void {
-  // Access the private method via prototype
-  const proto = Object.getPrototypeOf(chordResolutionService);
+// ============================================================================
+// Initialize Service
+// ============================================================================
 
-  // Store original method (in case we need to restore it)
-  const originalMethod = proto.getSystemOverrideChord;
+// Create and inject the data provider on module load
+const dataProvider = new WebChordDataProvider();
+chordResolutionService.setDataProvider(dataProvider);
 
-  // Override with Supabase integration
-  proto.getSystemOverrideChord = async function (
-    chordName: string,
-    instrumentId: string
-  ): Promise<SystemChord | null> {
-    return fetchSystemChordWithCache(chordName, instrumentId);
-  };
-
-  console.log('[ChordResolution] Supabase integration injected');
-}
-
-// Inject on module load
-injectSupabaseIntegration();
+console.log('[ChordResolution] Web data provider initialized');
 
 // ============================================================================
 // Public API

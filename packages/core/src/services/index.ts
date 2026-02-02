@@ -463,6 +463,7 @@ export {
 export {
   chordResolutionService,
   ChordResolutionService,
+  type ChordDataProvider,
   type ResolvedChord,
   type ChordResolutionOptions,
   type SongChordResolutionOptions,
