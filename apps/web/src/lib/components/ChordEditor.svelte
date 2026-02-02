@@ -75,11 +75,15 @@
   }
 
   async function saveFingering() {
+    console.log('[ChordEditor] saveFingering called - button was clicked!');
+
     if (!user) {
+      console.log('[ChordEditor] No user found, aborting');
       error = 'No user found';
       return;
     }
 
+    console.log('[ChordEditor] Starting save process');
     error = null;
     saving = true;
 

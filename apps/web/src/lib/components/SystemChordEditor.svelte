@@ -80,11 +80,16 @@
   }
 
   async function saveSystemChord() {
+    console.log('[SystemChordEditor] saveSystemChord called - button was clicked!');
+    console.log('[SystemChordEditor] User:', user, 'Can create:', canCreateSystemChords);
+
     if (!canCreateSystemChords || !user) {
+      console.log('[SystemChordEditor] Permission denied or no user');
       error = 'You do not have permission to create system chords';
       return;
     }
 
+    console.log('[SystemChordEditor] Starting save process');
     saving = true;
     error = null;
 
