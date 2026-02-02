@@ -31,14 +31,29 @@
   let saving = $state(false);
   let error = $state<string | null>(null);
   let componentReady = $state(false);
+  let user = $state<any>(null);
   let hasLoaded = false;
 
   $effect(() => {
     if (!browser || hasLoaded) return;
     hasLoaded = true;
 
+    loadUser();
     loadChordComponent();
   });
+
+  async function loadUser() {
+    try {
+      const { getDatabase } = await import('@gigwidget/db');
+      const db = getDatabase();
+      const users = await db.users.toArray();
+      if (users.length > 0) {
+        user = users[0];
+      }
+    } catch (err) {
+      console.error('Failed to load user:', err);
+    }
+  }
 
   async function loadChordComponent() {
     try {
@@ -60,23 +75,20 @@
   }
 
   async function saveFingering() {
+    if (!user) {
+      error = 'No user found';
+      return;
+    }
+
     error = null;
     saving = true;
 
     try {
-      const { LocalFingeringRepository, getDatabase } = await import('@gigwidget/db');
+      const { LocalFingeringRepository } = await import('@gigwidget/db');
       const { generateId } = await import('@gigwidget/core');
       const { indexedDBService } = await import('@parent-tobias/chord-component');
-      const db = getDatabase();
 
-      const users = await db.users.toArray();
-      if (users.length === 0) {
-        error = 'No user found';
-        saving = false;
-        return;
-      }
-
-      const userId = users[0].id;
+      const userId = user.id;
       const targetInstrumentId = instrumentId || 'guitar';
 
       // Retrieve current chord data from chord-component's IndexedDB
@@ -128,14 +140,17 @@
   {/if}
 
   <div class="editor-content">
-    {#if componentReady}
+    {#if !user}
+      <div class="loading">Loading user...</div>
+    {:else if !componentReady}
+      <div class="loading">Loading chord editor...</div>
+    {:else}
       <chord-editor
         chord-name={chordName}
         instrument={instrumentId || 'guitar'}
         chord={JSON.stringify(chordData)}
+        user-id={user.id}
       ></chord-editor>
-    {:else}
-      <div class="loading">Loading chord editor...</div>
     {/if}
   </div>
 

@@ -182,14 +182,17 @@
     {/if}
 
     <div class="editor-content">
-      {#if componentReady}
+      {#if !user}
+        <div class="loading">Loading user...</div>
+      {:else if !componentReady}
+        <div class="loading">Loading chord editor...</div>
+      {:else}
         <chord-editor
           chord-name={chordName}
           instrument={instrumentId}
           chord={JSON.stringify(chordData)}
+          user-id={user.id}
         ></chord-editor>
-      {:else}
-        <div class="loading">Loading chord editor...</div>
       {/if}
     </div>
 

@@ -297,6 +297,11 @@
 
   .editor-section {
     margin-top: var(--spacing-lg);
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+    padding: var(--spacing-md);
+    background-color: var(--color-surface);
+    border-radius: var(--radius-md);
   }
 
   .controls-bar {
