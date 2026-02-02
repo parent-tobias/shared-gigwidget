@@ -19,7 +19,7 @@
   let user = $state<any>(null);
   let canCreateSystemChords = $derived(user && hasPermission(user, 'create_system_chords'));
 
-  // Form state
+  // Form state - provide default structure for new chords
   let chordData = $state<any>(
     existingSystemChord
       ? {
@@ -28,7 +28,12 @@
           barres: existingSystemChord.barres,
           baseFret: existingSystemChord.base_fret,
         }
-      : undefined
+      : {
+          positions: [],
+          fingers: [],
+          barres: [],
+          baseFret: 1,
+        }
   );
   let description = $state(existingSystemChord?.description ?? '');
   let saving = $state(false);
@@ -169,7 +174,7 @@
         <chord-editor
           chord-name={chordName}
           instrument={instrumentId}
-          chord={chordData ? JSON.stringify(chordData) : undefined}
+          chord={JSON.stringify(chordData)}
           onchord-changed={handleChordChange}
         ></chord-editor>
       {:else}
