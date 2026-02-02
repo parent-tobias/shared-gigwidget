@@ -83,6 +83,10 @@
     chordData = e.detail;
   }
 
+  function handleChordSaved(e: CustomEvent) {
+    chordData = e.detail;
+  }
+
   async function saveSystemChord() {
     if (!canCreateSystemChords || !user) {
       error = 'You do not have permission to create system chords';
@@ -186,6 +190,7 @@
           instrument={instrumentId}
           chord={JSON.stringify(chordData)}
           on:chord-changed={handleChordChange}
+          on:chord-saved={handleChordSaved}
         ></chord-editor>
       {:else}
         <div class="loading">Loading chord editor...</div>

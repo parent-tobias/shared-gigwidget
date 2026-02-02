@@ -63,6 +63,10 @@
     chordData = e.detail;
   }
 
+  function handleChordSaved(e: CustomEvent) {
+    chordData = e.detail;
+  }
+
   async function saveFingering() {
     if (!chordData) {
       error = 'No chord data to save';
@@ -133,6 +137,7 @@
         instrument={instrumentId || 'guitar'}
         chord={JSON.stringify(chordData)}
         on:chord-changed={handleChordChange}
+        on:chord-saved={handleChordSaved}
       ></chord-editor>
     {:else}
       <div class="loading">Loading chord editor...</div>
