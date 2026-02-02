@@ -1,7 +1,8 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import type { ResolvedChord, SongChordOverride } from '@gigwidget/core';
-  import { generateId } from '@gigwidget/core';
+  import type { ResolvedChord, SongChordOverride, LocalFingering } from '@gigwidget/core';
+  import { generateId, hasPermission } from '@gigwidget/core';
+  import ChordEditor from './ChordEditor.svelte';
 
   interface Props {
     songId: string;
@@ -19,13 +20,30 @@
   let chordVariations = $state<ResolvedChord[]>([]);
   let loading = $state(true);
   let componentReady = $state(false);
+  let showEditor = $state(false);
+  let user = $state<any>(null);
+  let canEditChords = $derived(user && hasPermission(user, 'edit_chords'));
 
   $effect(() => {
     if (browser) {
       loadChordComponent();
+      loadUser();
       loadVariations();
     }
   });
+
+  async function loadUser() {
+    try {
+      const { getDatabase } = await import('@gigwidget/db');
+      const db = getDatabase();
+      const users = await db.users.toArray();
+      if (users.length > 0) {
+        user = users[0];
+      }
+    } catch (err) {
+      console.error('Failed to load user:', err);
+    }
+  }
 
   async function loadChordComponent() {
     try {
@@ -77,6 +95,20 @@
     onSelect(variation.source, variationId);
   }
 
+  function handleCreateCustom() {
+    showEditor = true;
+  }
+
+  function handleEditorSave(fingering: LocalFingering) {
+    // After saving, reload variations and return to list view
+    showEditor = false;
+    loadVariations();
+  }
+
+  function handleEditorCancel() {
+    showEditor = false;
+  }
+
   function getSourceBadgeClass(source: ResolvedChord['source']): string {
     switch (source) {
       case 'user-custom': return 'badge-user';
@@ -116,14 +148,32 @@
 <div class="modal-backdrop" onclick={handleBackdropClick}>
   <div class="modal-content">
     <div class="modal-header">
-      <h2>Choose Chord Variation: {chordName}</h2>
+      <h2>{showEditor ? 'Create Custom Fingering' : 'Choose Chord Variation'}: {chordName}</h2>
       <button type="button" class="close-btn" onclick={onClose}>×</button>
     </div>
 
-    {#if loading}
+    {#if showEditor}
+      <div class="modal-body">
+        <ChordEditor
+          chordName={chordName}
+          instrumentId={instrumentId}
+          onSave={handleEditorSave}
+          onCancel={handleEditorCancel}
+        />
+      </div>
+    {:else if loading}
       <div class="loading">Loading chord variations...</div>
     {:else if chordVariations.length === 0}
-      <p class="no-variations">No chord variations found.</p>
+      <div class="modal-body">
+        <p class="no-variations">No chord variations found.</p>
+        {#if canEditChords}
+          <div class="create-section">
+            <button type="button" class="btn btn-primary" onclick={handleCreateCustom}>
+              Create New Custom Fingering
+            </button>
+          </div>
+        {/if}
+      </div>
     {:else}
       <div class="modal-body">
         <p class="instructions">
@@ -171,6 +221,14 @@
             </button>
           {/each}
         </div>
+
+        {#if canEditChords}
+          <div class="create-section">
+            <button type="button" class="btn btn-primary" onclick={handleCreateCustom}>
+              Create New Custom Fingering
+            </button>
+          </div>
+        {/if}
 
         {#if currentOverride}
           <div class="reset-section">
@@ -371,6 +429,14 @@
     border-top: 1px solid var(--color-border);
     display: flex;
     justify-content: center;
+  }
+
+  .create-section {
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    justify-content: center;
+    margin-top: var(--spacing-md);
   }
 
   chord-diagram {
