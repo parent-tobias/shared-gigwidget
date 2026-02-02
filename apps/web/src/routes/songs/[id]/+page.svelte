@@ -2,8 +2,9 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import type { Song, Arrangement, MusicalKey, Visibility } from '@gigwidget/core';
-  import { MUSICAL_KEYS } from '@gigwidget/core';
+  import type { Song, Arrangement, MusicalKey, Visibility, SongChordOverride } from '@gigwidget/core';
+  import { MUSICAL_KEYS, generateId } from '@gigwidget/core';
+  import ChordSelectionModal from '$lib/components/ChordSelectionModal.svelte';
 
   let song = $state<Song | null>(null);
   let arrangements = $state<Arrangement[]>([]);
@@ -45,6 +46,13 @@
   let sessionStore: ReturnType<typeof import('$lib/stores/sessionStore.svelte').getSessionStore> | null = null;
   let transposeCleanup: (() => void) | null = null;
   let contentUpdateCleanup: (() => void) | null = null;
+
+  // Chord selection state
+  let showChordSelectionModal = $state(false);
+  let selectedChordForModal = $state<string | null>(null);
+  let songChordOverrides = $state<SongChordOverride[]>([]);
+  let currentUser = $state<any>(null);
+  let showChordPalette = $state(false);
 
   // Navigation context (for breadcrumbs)
   const fromContext = $derived($page.url.searchParams.get('from'));
@@ -544,6 +552,130 @@
       savingInfo = false;
     }
   }
+
+  // Chord selection functions
+  async function loadCurrentUser() {
+    try {
+      const { getDatabase } = await import('@gigwidget/db');
+      const db = getDatabase();
+      const users = await db.users.toArray();
+      if (users.length > 0) {
+        currentUser = users[0];
+      }
+    } catch (err) {
+      console.error('Failed to load current user:', err);
+    }
+  }
+
+  async function loadSongChordOverrides() {
+    if (!currentUser || !song) return;
+
+    try {
+      const { SongChordOverrideRepository } = await import('@gigwidget/db');
+      songChordOverrides = await SongChordOverrideRepository.getBySong(currentUser.id, song.id);
+    } catch (err) {
+      console.error('Failed to load song chord overrides:', err);
+    }
+  }
+
+  function extractChordsFromContent(content: string): string[] {
+    // Extract chord names from ChordPro format [ChordName]
+    const chordMatches = content.matchAll(/\[([^\]]+)\]/g);
+    const chords = new Set<string>();
+
+    for (const match of chordMatches) {
+      const chordName = match[1].trim();
+      // Filter out non-chord directives (like {title:...})
+      if (chordName && !chordName.includes(':')) {
+        chords.add(chordName);
+      }
+    }
+
+    return Array.from(chords).sort();
+  }
+
+  const uniqueChords = $derived.by(() => {
+    if (!selectedArrangement) return [];
+    return extractChordsFromContent(selectedArrangement.content);
+  });
+
+  function hasChordOverride(chordName: string): boolean {
+    return songChordOverrides.some(o => o.chordName === chordName);
+  }
+
+  function handleChordClick(chordName: string) {
+    selectedChordForModal = chordName;
+    showChordSelectionModal = true;
+  }
+
+  async function handleChordSelect(source: string, variationId?: string) {
+    if (!currentUser || !song || !selectedChordForModal) return;
+
+    try {
+      const { SongChordOverrideRepository } = await import('@gigwidget/db');
+
+      await SongChordOverrideRepository.upsert({
+        id: generateId(),
+        userId: currentUser.id,
+        songId: song.id,
+        chordName: selectedChordForModal,
+        instrumentId: defaultInstrument || 'guitar',
+        selectedSource: source as any,
+        selectedVariationId: variationId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Reload overrides
+      await loadSongChordOverrides();
+
+      showChordSelectionModal = false;
+      selectedChordForModal = null;
+    } catch (err) {
+      console.error('Failed to save chord selection:', err);
+    }
+  }
+
+  async function handleChordReset() {
+    if (!currentUser || !song || !selectedChordForModal) return;
+
+    try {
+      const { SongChordOverrideRepository } = await import('@gigwidget/db');
+
+      const override = await SongChordOverrideRepository.getForChord(
+        currentUser.id,
+        song.id,
+        selectedChordForModal
+      );
+
+      if (override) {
+        await SongChordOverrideRepository.delete(override.id);
+        await loadSongChordOverrides();
+      }
+
+      showChordSelectionModal = false;
+      selectedChordForModal = null;
+    } catch (err) {
+      console.error('Failed to reset chord selection:', err);
+    }
+  }
+
+  function getCurrentOverride(chordName: string): SongChordOverride | undefined {
+    return songChordOverrides.find(o => o.chordName === chordName);
+  }
+
+  // Load user and overrides when song loads
+  $effect(() => {
+    if (browser && song) {
+      loadCurrentUser();
+    }
+  });
+
+  $effect(() => {
+    if (browser && currentUser && song) {
+      loadSongChordOverrides();
+    }
+  });
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -701,6 +833,15 @@
                 {/if}
               </div>
               <div class="toolbar-right">
+                {#if uniqueChords.length > 0 && !isSessionSong}
+                  <button
+                    class="toolbar-btn"
+                    onclick={() => (showChordPalette = !showChordPalette)}
+                    title={showChordPalette ? 'Hide chord palette' : 'Show chord palette'}
+                  >
+                    🎸
+                  </button>
+                {/if}
                 <button
                   class="toolbar-btn"
                   onclick={toggleRendererTheme}
@@ -733,6 +874,34 @@
                 instrument={defaultInstrument || 'Standard Guitar'}
               ></chordpro-renderer>
             </div>
+
+            {#if showChordPalette && uniqueChords.length > 0 && !isSessionSong}
+              <div class="chord-palette">
+                <div class="chord-palette-header">
+                  <h3>Chords in this song</h3>
+                  <button class="close-palette-btn" onclick={() => (showChordPalette = false)}>×</button>
+                </div>
+                <div class="chord-palette-grid">
+                  {#each uniqueChords as chord}
+                    <button
+                      type="button"
+                      class="chord-palette-item"
+                      class:has-override={hasChordOverride(chord)}
+                      onclick={() => handleChordClick(chord)}
+                      title="Click to choose chord variation"
+                    >
+                      <span class="chord-name">{chord}</span>
+                      {#if hasChordOverride(chord)}
+                        <span class="override-indicator" title="Custom variation selected">•</span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+                <p class="chord-palette-hint">
+                  Click any chord to choose a specific variation for this song
+                </p>
+              </div>
+            {/if}
           </div>
         {:else if !selectedArrangement}
           <div class="empty-state">
@@ -919,6 +1088,21 @@
       </form>
     </div>
   </div>
+{/if}
+
+{#if showChordSelectionModal && selectedChordForModal && song}
+  <ChordSelectionModal
+    songId={song.id}
+    chordName={selectedChordForModal}
+    instrumentId={defaultInstrument || 'guitar'}
+    currentOverride={getCurrentOverride(selectedChordForModal)}
+    onSelect={handleChordSelect}
+    onReset={handleChordReset}
+    onClose={() => {
+      showChordSelectionModal = false;
+      selectedChordForModal = null;
+    }}
+  />
 {/if}
 
 <style>
@@ -1497,6 +1681,102 @@
   .visibility-desc {
     font-size: 0.75rem;
     color: var(--color-text-muted);
+  }
+
+  /* Chord palette styles */
+  .chord-palette {
+    background-color: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    padding: var(--spacing-md);
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .renderer-container.maximized .chord-palette {
+    max-height: 200px;
+  }
+
+  .chord-palette-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .chord-palette-header h3 {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-muted);
+  }
+
+  .close-palette-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  .close-palette-btn:hover {
+    color: var(--color-text);
+  }
+
+  .chord-palette-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .chord-palette-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .chord-palette-item:hover {
+    background-color: var(--color-bg);
+    border-color: var(--color-primary);
+    transform: translateY(-1px);
+  }
+
+  .chord-palette-item.has-override {
+    border-color: var(--color-primary);
+    background-color: rgba(233, 69, 96, 0.1);
+  }
+
+  .chord-palette-item .chord-name {
+    font-family: monospace;
+  }
+
+  .chord-palette-item .override-indicator {
+    color: var(--color-primary);
+    font-size: 1.5rem;
+    line-height: 1;
+  }
+
+  .chord-palette-hint {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    font-style: italic;
   }
 
   @media (max-width: 1024px) {
