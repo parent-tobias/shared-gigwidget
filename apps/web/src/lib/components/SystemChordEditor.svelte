@@ -79,22 +79,9 @@
     }
   }
 
-  function handleChordChange(e: CustomEvent) {
-    chordData = e.detail;
-  }
-
-  function handleChordSaved(e: CustomEvent) {
-    chordData = e.detail;
-  }
-
   async function saveSystemChord() {
     if (!canCreateSystemChords || !user) {
       error = 'You do not have permission to create system chords';
-      return;
-    }
-
-    if (!chordData) {
-      error = 'No chord data to save';
       return;
     }
 
@@ -102,15 +89,26 @@
     error = null;
 
     try {
+      const { indexedDBService } = await import('@parent-tobias/chord-component');
+
+      // Retrieve current chord data from chord-component's IndexedDB
+      const currentChord = await indexedDBService.getUserChord(user.id, chordName, instrumentId);
+
+      if (!currentChord || !currentChord.positions || currentChord.positions.length === 0) {
+        error = 'No chord data to save. Please create a chord first.';
+        saving = false;
+        return;
+      }
+
       const { error: saveError } = await upsertSystemChord(
         {
           id: existingSystemChord?.id,
           chordName,
           instrumentId,
-          positions: chordData.positions,
-          fingers: chordData.fingers,
-          barres: chordData.barres,
-          baseFret: chordData.baseFret || 1,
+          positions: [...currentChord.positions],
+          fingers: currentChord.fingers ? [...currentChord.fingers] : undefined,
+          barres: currentChord.barres ? currentChord.barres.map((b: any) => ({ ...b })) : undefined,
+          baseFret: currentChord.baseFret || 1,
           description: description || undefined,
         },
         user.displayName
@@ -189,8 +187,6 @@
           chord-name={chordName}
           instrument={instrumentId}
           chord={JSON.stringify(chordData)}
-          onchord-changed={handleChordChange}
-          onchord-saved={handleChordSaved}
         ></chord-editor>
       {:else}
         <div class="loading">Loading chord editor...</div>

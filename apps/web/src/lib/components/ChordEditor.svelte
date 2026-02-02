@@ -59,26 +59,14 @@
     }
   }
 
-  function handleChordChange(e: CustomEvent) {
-    chordData = e.detail;
-  }
-
-  function handleChordSaved(e: CustomEvent) {
-    chordData = e.detail;
-  }
-
   async function saveFingering() {
-    if (!chordData) {
-      error = 'No chord data to save';
-      return;
-    }
-
     error = null;
     saving = true;
 
     try {
       const { LocalFingeringRepository, getDatabase } = await import('@gigwidget/db');
       const { generateId } = await import('@gigwidget/core');
+      const { indexedDBService } = await import('@parent-tobias/chord-component');
       const db = getDatabase();
 
       const users = await db.users.toArray();
@@ -91,16 +79,25 @@
       const userId = users[0].id;
       const targetInstrumentId = instrumentId || 'guitar';
 
-      // Convert proxy objects to plain objects/arrays for IndexedDB
+      // Retrieve current chord data from chord-component's IndexedDB
+      const currentChord = await indexedDBService.getUserChord(userId, chordName, targetInstrumentId);
+
+      if (!currentChord || !currentChord.positions || currentChord.positions.length === 0) {
+        error = 'No chord data to save. Please create a chord first.';
+        saving = false;
+        return;
+      }
+
+      // Convert to Gigwidget format
       const fingering: LocalFingering = {
         id: existingFingering?.id ?? generateId(),
         userId,
         chordName,
         instrumentId: targetInstrumentId,
-        positions: [...(chordData.positions || [])],
-        fingers: chordData.fingers ? [...chordData.fingers] : undefined,
-        barres: chordData.barres ? chordData.barres.map((b: any) => ({ ...b })) : undefined,
-        baseFret: chordData.baseFret || 1,
+        positions: [...currentChord.positions],
+        fingers: currentChord.fingers ? [...currentChord.fingers] : undefined,
+        barres: currentChord.barres ? currentChord.barres.map((b: any) => ({ ...b })) : undefined,
+        baseFret: currentChord.baseFret || 1,
         isDefault: existingFingering?.isDefault ?? false,
         createdAt: existingFingering?.createdAt ?? new Date(),
       };
@@ -136,8 +133,6 @@
         chord-name={chordName}
         instrument={instrumentId || 'guitar'}
         chord={JSON.stringify(chordData)}
-        onchord-changed={handleChordChange}
-        onchord-saved={handleChordSaved}
       ></chord-editor>
     {:else}
       <div class="loading">Loading chord editor...</div>
