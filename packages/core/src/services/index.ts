@@ -455,3 +455,15 @@ export {
   type Permission,
   type TierInfo,
 } from './permissions.js';
+
+// ============================================================================
+// Chord Resolution Service (re-export)
+// ============================================================================
+
+export {
+  chordResolutionService,
+  ChordResolutionService,
+  type ResolvedChord,
+  type ChordResolutionOptions,
+  type SongChordResolutionOptions,
+} from './chordResolution.js';

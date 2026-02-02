@@ -30,6 +30,7 @@ import type {
   LocalFingering,
   SongMetadata,
   SongSet,
+  SongChordOverride,
 } from '@gigwidget/core';
 import {
   createAnonymousUser,
@@ -60,6 +61,9 @@ export class GigwidgetDatabase extends Dexie {
   localFingerings!: EntityTable<LocalFingering, 'id'>;
   songMetadata!: EntityTable<SongMetadata, 'songId'>;
   songSets!: EntityTable<SongSet, 'id'>;
+
+  // New tables (v3)
+  songChordOverrides!: EntityTable<SongChordOverride, 'id'>;
 
   constructor() {
     super('gigwidget');
@@ -108,6 +112,29 @@ export class GigwidgetDatabase extends Dexie {
       songMetadata: 'songId',
       songSets: 'id, userId, parentSetId, name, isSetlist',
     });
+
+    // Version 3: Add song chord overrides
+    this.version(3).stores({
+      // Existing tables (unchanged)
+      users: 'id, supabaseId, createdAt',
+      userPreferences: 'userId',
+      songs: 'id, ownerId, title, artist, visibility, updatedAt, *tags, *spaceIds',
+      arrangements: 'id, songId, instrument, updatedAt',
+      snapshots: 'id, songId, arrangementId, createdAt',
+      spaces: 'id, ownerId, type, name, createdAt',
+      memberships: 'id, userId, spaceId, role',
+      sessions: 'id, hostId, type, createdAt, expiresAt',
+      sessionParticipants: '[sessionId+userId], sessionId, userId',
+      syncStates: 'userId, syncStatus',
+      conflicts: 'id, songId, arrangementId, resolved, detectedAt',
+      customInstruments: 'id, userId, name, baseType, isPublic',
+      localFingerings: 'id, userId, chordName, instrumentId, [userId+chordName+instrumentId]',
+      songMetadata: 'songId',
+      songSets: 'id, userId, parentSetId, name, isSetlist',
+
+      // New tables
+      songChordOverrides: 'id, userId, songId, [userId+songId+chordName]',
+    });
   }
 }
 
@@ -155,6 +182,7 @@ export async function clearDatabase(): Promise<void> {
     db.localFingerings,
     db.songMetadata,
     db.songSets,
+    db.songChordOverrides,
   ], async () => {
     await db.users.clear();
     await db.userPreferences.clear();
@@ -171,6 +199,7 @@ export async function clearDatabase(): Promise<void> {
     await db.localFingerings.clear();
     await db.songMetadata.clear();
     await db.songSets.clear();
+    await db.songChordOverrides.clear();
   });
 
   console.log('[DB] Database cleared');

@@ -338,6 +338,53 @@ export interface LocalFingering {
 }
 
 // ============================================================================
+// System Chord Domain (Moderator-created)
+// ============================================================================
+
+/**
+ * System-wide chord override created by moderators.
+ * These chords are visible to all users and take precedence over
+ * dynamic chord generation but not over user custom chords.
+ * Stored in Supabase.
+ */
+export interface SystemChord {
+  id: string;
+  chordName: string;
+  instrumentId: string; // Can be built-in instrument name or custom instrument ID
+  positions: number[]; // Fret positions per string (-1 = muted, 0 = open)
+  fingers?: number[]; // Which finger on each string (1-4, 0 = none)
+  barres?: FingeringBarre[];
+  baseFret: number; // Starting fret position (default: 1)
+  createdBy: string; // User ID of moderator who created it
+  createdByName: string; // Cached display name for UI
+  description?: string; // Optional note about this chord variation
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============================================================================
+// Song Chord Override Domain (Song-specific)
+// ============================================================================
+
+/**
+ * Song-level chord override.
+ * Stores user's choice of which chord variation to use for a specific song.
+ * Takes highest precedence in chord resolution chain.
+ * Stored in local IndexedDB (NOT synced).
+ */
+export interface SongChordOverride {
+  id: string;
+  userId: string;
+  songId: string;
+  chordName: string;
+  instrumentId: string;
+  selectedSource: 'user-custom' | 'system-override' | 'dynamic';
+  selectedVariationId?: string; // ID of LocalFingering or SystemChord
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============================================================================
 // Song Metadata Domain (NOT synced)
 // ============================================================================
 

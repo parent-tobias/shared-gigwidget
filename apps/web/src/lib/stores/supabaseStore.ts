@@ -632,6 +632,21 @@ export interface SupabaseSongSet {
   updated_at: string;
 }
 
+export interface SupabaseSystemChord {
+  id: string;
+  chord_name: string;
+  instrument_id: string;
+  positions: number[];
+  fingers: number[] | null;
+  barres: any | null; // JSONB in Postgres
+  base_fret: number;
+  created_by: string;
+  created_by_name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /**
  * Search public song sets/collections
  */
@@ -801,6 +816,164 @@ export async function deleteSongSetFromSupabase(
     return { success: true };
   } catch (err) {
     console.error('Exception deleting song set:', err);
+    return { error: err };
+  }
+}
+
+// ============================================================================
+// System Chords (Moderator-created overrides)
+// ============================================================================
+
+/**
+ * Load all system chords (cached locally for performance)
+ */
+export async function loadSystemChords(): Promise<{
+  data?: SupabaseSystemChord[];
+  error?: unknown;
+}> {
+  try {
+    const { data, error } = await supabase
+      .from('system_chords')
+      .select('*')
+      .order('chord_name', { ascending: true });
+
+    if (error) {
+      console.error('Error loading system chords:', error);
+      return { error };
+    }
+
+    console.log(`Loaded ${data?.length || 0} system chords`);
+    return { data: data as SupabaseSystemChord[] };
+  } catch (err) {
+    console.error('Exception loading system chords:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Get system chords for a specific instrument
+ */
+export async function getSystemChordsForInstrument(
+  instrumentId: string
+): Promise<{ data?: SupabaseSystemChord[]; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('system_chords')
+      .select('*')
+      .eq('instrument_id', instrumentId)
+      .order('chord_name', { ascending: true });
+
+    if (error) {
+      console.error('Error loading system chords for instrument:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseSystemChord[] };
+  } catch (err) {
+    console.error('Exception loading system chords for instrument:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Get a specific system chord
+ */
+export async function getSystemChord(
+  chordName: string,
+  instrumentId: string
+): Promise<{ data?: SupabaseSystemChord; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('system_chords')
+      .select('*')
+      .eq('chord_name', chordName)
+      .eq('instrument_id', instrumentId)
+      .single();
+
+    if (error) {
+      // Not found is not an error for our purposes
+      if (error.code === 'PGRST116') {
+        return { data: undefined };
+      }
+      console.error('Error loading system chord:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseSystemChord };
+  } catch (err) {
+    console.error('Exception loading system chord:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Save or update a system chord (moderators only)
+ */
+export async function upsertSystemChord(
+  chord: {
+    id?: string;
+    chordName: string;
+    instrumentId: string;
+    positions: number[];
+    fingers?: number[];
+    barres?: any;
+    baseFret: number;
+    description?: string;
+  },
+  creatorName: string
+): Promise<{ data?: SupabaseSystemChord; error?: unknown }> {
+  try {
+    const payload: any = {
+      chord_name: chord.chordName,
+      instrument_id: chord.instrumentId,
+      positions: chord.positions,
+      fingers: chord.fingers ?? null,
+      barres: chord.barres ?? null,
+      base_fret: chord.baseFret,
+      created_by_name: creatorName,
+      description: chord.description ?? null,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (chord.id) {
+      payload.id = chord.id;
+    }
+
+    const { data, error } = await supabase
+      .from('system_chords')
+      .upsert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error upserting system chord:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseSystemChord };
+  } catch (err) {
+    console.error('Exception upserting system chord:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Delete a system chord (moderators only)
+ */
+export async function deleteSystemChord(
+  id: string
+): Promise<{ success?: boolean; error?: unknown }> {
+  try {
+    const { error } = await supabase.from('system_chords').delete().eq('id', id);
+
+    if (error) {
+      console.error('Error deleting system chord:', error);
+      return { error };
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('Exception deleting system chord:', err);
     return { error: err };
   }
 }

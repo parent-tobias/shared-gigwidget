@@ -205,6 +205,78 @@ CREATE TRIGGER update_custom_instruments_updated_at
   EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
+-- System Chords Table (Moderator-created overrides)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS system_chords (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Chord identity
+  chord_name TEXT NOT NULL,
+  instrument_id TEXT NOT NULL, -- Can be built-in instrument name or custom instrument ID
+
+  -- Chord data (matches chord-component format)
+  positions INTEGER[] NOT NULL, -- Fret positions per string (-1 = muted, 0 = open)
+  fingers INTEGER[], -- Which finger on each string (1-4, 0 = none)
+  barres JSONB, -- Array of barre objects: [{ fret, fromString, toString }]
+  base_fret INTEGER DEFAULT 1, -- Starting fret position
+
+  -- Metadata
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by_name TEXT NOT NULL, -- Cached display name for UI
+  description TEXT, -- Optional note about this chord variation
+
+  -- Timestamps
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  -- Prevent duplicate chord definitions per instrument
+  CONSTRAINT unique_chord_per_instrument UNIQUE (chord_name, instrument_id)
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS system_chords_chord_name_idx ON system_chords(chord_name);
+CREATE INDEX IF NOT EXISTS system_chords_instrument_idx ON system_chords(instrument_id);
+CREATE INDEX IF NOT EXISTS system_chords_created_by_idx ON system_chords(created_by);
+
+-- Row Level Security
+ALTER TABLE system_chords ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can read system chords
+CREATE POLICY "Anyone can read system chords"
+  ON system_chords
+  FOR SELECT
+  USING (true);
+
+-- Only moderators can manage system chords
+CREATE POLICY "Moderators can manage system chords"
+  ON system_chords
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid()
+      AND profiles.subscription_tier = 'mod'
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid()
+      AND profiles.subscription_tier = 'mod'
+    )
+  );
+
+-- Triggers
+CREATE TRIGGER update_system_chords_updated_at
+  BEFORE UPDATE ON system_chords
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- Enable real-time (optional - for live updates when mods create chords)
+ALTER PUBLICATION supabase_realtime ADD TABLE system_chords;
+
+-- ============================================================================
 -- Avatar Storage Bucket
 -- Run these in Supabase Dashboard > Storage > New Bucket
 -- ============================================================================

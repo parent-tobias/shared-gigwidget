@@ -1,19 +1,18 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import type { LocalFingering, CustomInstrument } from '@gigwidget/core';
+  import type { ResolvedChord } from '@gigwidget/core';
 
   interface Props {
     chordName: string;
     instrumentId?: string;
-    onFingeringSelect?: (fingering: LocalFingering) => void;
+    onChordSelect?: (chord: ResolvedChord) => void;
     onCreateNew?: () => void;
   }
 
-  let { chordName, instrumentId, onFingeringSelect, onCreateNew }: Props = $props();
+  let { chordName, instrumentId, onChordSelect, onCreateNew }: Props = $props();
 
-  let fingerings = $state<LocalFingering[]>([]);
-  let defaultFingering = $state<LocalFingering | null>(null);
-  let instrument = $state<CustomInstrument | null>(null);
+  let chordVariations = $state<ResolvedChord[]>([]);
+  let selectedChord = $state<ResolvedChord | null>(null);
   let loading = $state(true);
   let componentReady = $state(false);
   let hasLoaded = false;
@@ -23,13 +22,13 @@
     hasLoaded = true;
 
     loadChordComponent();
-    loadFingerings();
+    loadChordVariations();
   });
 
-  // Reload when chord name changes
+  // Reload when chord name or instrument changes
   $effect(() => {
-    if (browser && hasLoaded && chordName) {
-      loadFingerings();
+    if (browser && hasLoaded && (chordName || instrumentId)) {
+      loadChordVariations();
     }
   });
 
@@ -42,53 +41,62 @@
     }
   }
 
-  async function loadFingerings() {
+  async function loadChordVariations() {
     loading = true;
     try {
-      const { LocalFingeringRepository, CustomInstrumentRepository, getDatabase } = await import('@gigwidget/db');
-      const db = getDatabase();
+      const { getDatabase } = await import('@gigwidget/db');
+      const { getAllChordVariationsWithSystemChords } = await import('$lib/services/chordResolution');
 
+      const db = getDatabase();
       const users = await db.users.toArray();
+
       if (users.length === 0) {
         loading = false;
         return;
       }
 
       const userId = users[0].id;
-      const targetInstrumentId = instrumentId || 'guitar';
+      const targetInstrumentId = instrumentId || 'Standard Ukulele';
 
-      // Load custom instrument if specified
-      if (instrumentId) {
-        instrument = await CustomInstrumentRepository.getById(instrumentId);
+      // Get all variations using resolution service
+      chordVariations = await getAllChordVariationsWithSystemChords(
+        userId,
+        chordName,
+        targetInstrumentId
+      );
+
+      // Set selected to the first variation (the default priority)
+      if (chordVariations.length > 0) {
+        selectedChord = chordVariations[0];
+        onChordSelect?.(selectedChord);
       }
-
-      // Load all fingerings for this chord and instrument
-      fingerings = await LocalFingeringRepository.getByChord(userId, chordName, targetInstrumentId);
-
-      // Get default fingering
-      defaultFingering = await LocalFingeringRepository.getDefault(userId, chordName, targetInstrumentId);
     } catch (err) {
-      console.error('Failed to load fingerings:', err);
+      console.error('Failed to load chord variations:', err);
     } finally {
       loading = false;
     }
   }
 
-  async function setAsDefault(fingering: LocalFingering) {
-    try {
-      const { LocalFingeringRepository } = await import('@gigwidget/db');
-      await LocalFingeringRepository.setDefault(fingering.id);
-      defaultFingering = fingering;
+  function selectChord(chord: ResolvedChord) {
+    selectedChord = chord;
+    onChordSelect?.(chord);
+  }
 
-      // Update the fingerings list
-      fingerings = fingerings.map((f) => ({
-        ...f,
-        isDefault: f.id === fingering.id,
-      }));
+  function getSourceBadgeClass(source: ResolvedChord['source']): string {
+    switch (source) {
+      case 'user-custom': return 'badge-user';
+      case 'system-override': return 'badge-system';
+      case 'dynamic': return 'badge-dynamic';
+      case 'song-override': return 'badge-song';
+    }
+  }
 
-      onFingeringSelect?.(fingering);
-    } catch (err) {
-      console.error('Failed to set default fingering:', err);
+  function getSourceLabel(source: ResolvedChord['source']): string {
+    switch (source) {
+      case 'user-custom': return 'Your Custom';
+      case 'system-override': return 'System Override';
+      case 'dynamic': return 'Generated';
+      case 'song-override': return 'Song Override';
     }
   }
 
@@ -100,50 +108,61 @@
 <div class="chord-viewer">
   <div class="chord-header">
     <h3 class="chord-name">{chordName}</h3>
-    {#if instrument}
-      <span class="instrument-name">{instrument.name}</span>
+    {#if instrumentId}
+      <span class="instrument-name">{instrumentId}</span>
     {/if}
   </div>
 
   {#if loading}
-    <div class="loading">Loading chord...</div>
+    <div class="loading">Loading chord variations...</div>
+  {:else if chordVariations.length === 0}
+    <p class="no-chords">No chord data found.</p>
   {:else}
-    <div class="fingerings-section">
-      {#if fingerings.length === 0}
-        <p class="no-fingerings">No saved fingerings for this chord.</p>
-      {:else}
-        <div class="fingerings-list">
-          {#each fingerings as fingering (fingering.id)}
-            <button
-              type="button"
-              class="fingering-card"
-              class:default={fingering.isDefault}
-              onclick={() => setAsDefault(fingering)}
-            >
-              {#if componentReady}
-                <chord-diagram
-                  chord={JSON.stringify({
-                    positions: fingering.positions,
-                    fingers: fingering.fingers,
-                    barres: fingering.barres,
-                    baseFret: fingering.baseFret,
-                  })}
-                  size="small"
-                ></chord-diagram>
-              {:else}
-                <div class="positions-text">{formatPositions(fingering.positions)}</div>
-              {/if}
-              {#if fingering.isDefault}
-                <span class="default-badge">Default</span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-      {/if}
+    <div class="variations-section">
+      <div class="variations-list">
+        {#each chordVariations as variation (variation.source + variation.baseFret)}
+          <button
+            type="button"
+            class="variation-card"
+            class:selected={selectedChord?.source === variation.source && selectedChord?.baseFret === variation.baseFret}
+            onclick={() => selectChord(variation)}
+          >
+            {#if componentReady}
+              <chord-diagram
+                chord={JSON.stringify({
+                  positions: variation.positions,
+                  fingers: variation.fingers,
+                  barres: variation.barres,
+                  baseFret: variation.baseFret,
+                })}
+                size="small"
+              ></chord-diagram>
+            {:else}
+              <div class="positions-text">{formatPositions(variation.positions)}</div>
+            {/if}
+
+            <span class="source-badge {getSourceBadgeClass(variation.source)}">
+              {getSourceLabel(variation.source)}
+            </span>
+
+            {#if variation.metadata?.description}
+              <p class="description">{variation.metadata.description}</p>
+            {/if}
+
+            {#if variation.metadata?.createdByName}
+              <p class="creator">by {variation.metadata.createdByName}</p>
+            {/if}
+
+            {#if variation.metadata?.isDefault}
+              <span class="default-badge">Default</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
 
       {#if onCreateNew}
         <button type="button" class="btn btn-secondary create-btn" onclick={onCreateNew}>
-          + Create New Fingering
+          + Create Custom Fingering
         </button>
       {/if}
     </div>
@@ -186,20 +205,20 @@
     color: var(--color-text-muted);
   }
 
-  .no-fingerings {
+  .no-chords {
     text-align: center;
     color: var(--color-text-muted);
     padding: var(--spacing-md);
   }
 
-  .fingerings-list {
+  .variations-list {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--spacing-sm);
+    gap: var(--spacing-md);
     margin-bottom: var(--spacing-md);
   }
 
-  .fingering-card {
+  .variation-card {
     position: relative;
     display: flex;
     flex-direction: column;
@@ -210,13 +229,15 @@
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: all var(--transition-fast);
+    min-width: 100px;
   }
 
-  .fingering-card:hover {
+  .variation-card:hover {
     border-color: var(--color-primary);
+    transform: translateY(-2px);
   }
 
-  .fingering-card.default {
+  .variation-card.selected {
     border-color: var(--color-primary);
     background-color: rgba(233, 69, 96, 0.1);
   }
@@ -225,6 +246,52 @@
     font-family: monospace;
     font-size: 0.875rem;
     padding: var(--spacing-sm);
+  }
+
+  .source-badge {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+
+  .badge-user {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .badge-system {
+    background-color: #4CAF50;
+    color: white;
+  }
+
+  .badge-dynamic {
+    background-color: #757575;
+    color: white;
+  }
+
+  .badge-song {
+    background-color: #9C27B0;
+    color: white;
+  }
+
+  .description {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-top: 4px;
+    margin-bottom: 0;
+    font-style: italic;
+    text-align: center;
+    max-width: 100px;
+  }
+
+  .creator {
+    font-size: 0.65rem;
+    color: var(--color-text-muted);
+    margin-top: 2px;
+    margin-bottom: 0;
+    text-align: center;
   }
 
   .default-badge {

@@ -18,6 +18,7 @@ import type {
   LocalFingering,
   SongMetadata,
   SongSet,
+  SongChordOverride,
 } from '@gigwidget/core';
 import { getDatabase } from '../schema.js';
 
@@ -536,5 +537,73 @@ export const SongSetRepository = {
     songIds.splice(toIndex, 0, removed);
 
     await this.update(setId, { songIds });
+  },
+};
+
+// ============================================================================
+// Song Chord Override Repository
+// ============================================================================
+
+export const SongChordOverrideRepository = {
+  async getById(id: string): Promise<SongChordOverride | undefined> {
+    return getDatabase().songChordOverrides.get(id);
+  },
+
+  async getBySong(userId: string, songId: string): Promise<SongChordOverride[]> {
+    return getDatabase().songChordOverrides
+      .where({ userId })
+      .filter((o: SongChordOverride) => o.songId === songId)
+      .toArray();
+  },
+
+  async getForChord(
+    userId: string,
+    songId: string,
+    chordName: string
+  ): Promise<SongChordOverride | undefined> {
+    return getDatabase().songChordOverrides
+      .where('[userId+songId+chordName]')
+      .equals([userId, songId, chordName])
+      .first();
+  },
+
+  async create(override: SongChordOverride): Promise<string> {
+    return getDatabase().songChordOverrides.add(override);
+  },
+
+  async upsert(override: SongChordOverride): Promise<void> {
+    const existing = await this.getForChord(
+      override.userId,
+      override.songId,
+      override.chordName
+    );
+
+    if (existing) {
+      await this.update(existing.id, {
+        selectedSource: override.selectedSource,
+        selectedVariationId: override.selectedVariationId,
+        updatedAt: new Date(),
+      });
+    } else {
+      await this.create(override);
+    }
+  },
+
+  async update(id: string, updates: Partial<SongChordOverride>): Promise<number> {
+    return getDatabase().songChordOverrides.update(id, {
+      ...updates,
+      updatedAt: new Date(),
+    });
+  },
+
+  async delete(id: string): Promise<void> {
+    await getDatabase().songChordOverrides.delete(id);
+  },
+
+  async clearForSong(userId: string, songId: string): Promise<void> {
+    await getDatabase().songChordOverrides
+      .where({ userId })
+      .filter((o: SongChordOverride) => o.songId === songId)
+      .delete();
   },
 };
