@@ -212,7 +212,7 @@ export class ChordResolutionService {
    * Resolve a specific variation based on source and ID
    */
   private async resolveSpecificVariation(
-    userId: string,
+    _userId: string,
     chordName: string,
     instrumentId: string,
     source: 'user-custom' | 'system-override' | 'dynamic',
