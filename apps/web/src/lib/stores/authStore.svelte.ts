@@ -180,6 +180,208 @@ export async function signOut(): Promise<void> {
   }
 }
 
+// ============================================================================
+// Password Validation
+// ============================================================================
+
+// Common words/names to reject (lowercase)
+const COMMON_WORDS = new Set([
+  'password', 'qwerty', 'letmein', 'welcome', 'admin', 'login',
+  'master', 'dragon', 'monkey', 'shadow', 'sunshine', 'princess',
+  'football', 'baseball', 'soccer', 'hockey', 'batman', 'superman',
+]);
+
+export interface PasswordValidation {
+  valid: boolean;
+  errors: string[];
+}
+
+/**
+ * Validate password strength
+ * Requirements:
+ * - At least 8 characters
+ * - At least one uppercase letter
+ * - At least one digit
+ * - At least one symbol
+ * - No common words/names
+ */
+export function validatePassword(password: string): PasswordValidation {
+  const errors: string[] = [];
+
+  if (password.length < 8) {
+    errors.push('Password must be at least 8 characters');
+  }
+
+  if (!/[A-Z]/.test(password)) {
+    errors.push('Password must contain at least one uppercase letter');
+  }
+
+  if (!/[0-9]/.test(password)) {
+    errors.push('Password must contain at least one digit');
+  }
+
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/.test(password)) {
+    errors.push('Password must contain at least one symbol');
+  }
+
+  // Check for common words (case-insensitive)
+  const lowerPassword = password.toLowerCase();
+  for (const word of COMMON_WORDS) {
+    if (lowerPassword.includes(word)) {
+      errors.push('Password contains a common word or name');
+      break;
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+// ============================================================================
+// Email/Password Auth
+// ============================================================================
+
+/**
+ * Sign up with email and password
+ */
+export async function signUpWithEmail(
+  email: string,
+  password: string
+): Promise<{ error: string | null; needsVerification: boolean }> {
+  authLoading = true;
+  authError = null;
+
+  try {
+    // Validate password first
+    const validation = validatePassword(password);
+    if (!validation.valid) {
+      const errorMsg = validation.errors.join('. ');
+      authError = errorMsg;
+      return { error: errorMsg, needsVerification: false };
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: browser ? `${window.location.origin}/settings/account` : undefined,
+      },
+    });
+
+    if (error) {
+      authError = error.message;
+      return { error: error.message, needsVerification: false };
+    }
+
+    // Supabase returns user but with identities = [] if email needs verification
+    // If email confirmation is required, user won't have a session yet
+    const needsVerification = data.user && !data.session;
+
+    return { error: null, needsVerification };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to sign up';
+    authError = message;
+    return { error: message, needsVerification: false };
+  } finally {
+    authLoading = false;
+  }
+}
+
+/**
+ * Sign in with email and password
+ */
+export async function signInWithEmail(
+  email: string,
+  password: string
+): Promise<{ error: string | null }> {
+  authLoading = true;
+  authError = null;
+
+  try {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      authError = error.message;
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to sign in';
+    authError = message;
+    return { error: message };
+  } finally {
+    authLoading = false;
+  }
+}
+
+/**
+ * Send password reset email
+ */
+export async function sendPasswordReset(email: string): Promise<{ error: string | null }> {
+  authLoading = true;
+  authError = null;
+
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: browser ? `${window.location.origin}/auth/reset-password` : undefined,
+    });
+
+    if (error) {
+      authError = error.message;
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to send reset email';
+    authError = message;
+    return { error: message };
+  } finally {
+    authLoading = false;
+  }
+}
+
+/**
+ * Update password (after reset or for logged-in user)
+ */
+export async function updatePassword(newPassword: string): Promise<{ error: string | null }> {
+  authLoading = true;
+  authError = null;
+
+  try {
+    // Validate new password
+    const validation = validatePassword(newPassword);
+    if (!validation.valid) {
+      const errorMsg = validation.errors.join('. ');
+      authError = errorMsg;
+      return { error: errorMsg };
+    }
+
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (error) {
+      authError = error.message;
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to update password';
+    authError = message;
+    return { error: message };
+  } finally {
+    authLoading = false;
+  }
+}
+
 /**
  * Initialize authenticated user by clearing anonymous data and creating fresh user.
  * This ensures no anonymous data persists after login.

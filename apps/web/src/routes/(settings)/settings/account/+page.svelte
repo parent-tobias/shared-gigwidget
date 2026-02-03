@@ -5,7 +5,10 @@
   import {
     initializeAuth,
     getAuthState,
-    sendMagicLink,
+    signInWithEmail,
+    signUpWithEmail,
+    sendPasswordReset,
+    validatePassword,
     signInWithGoogle,
     signOut,
     isAuthenticated,
@@ -21,9 +24,14 @@
   const auth = getAuthState();
   const sync = getSyncState();
   let loginEmail = $state('');
-  let magicLinkSent = $state(false);
+  let loginPassword = $state('');
+  let confirmPassword = $state('');
+  let authMode = $state<'login' | 'signup' | 'forgot'>('login');
+  let verificationSent = $state(false);
+  let resetEmailSent = $state(false);
   let authActionLoading = $state(false);
   let authActionError = $state<string | null>(null);
+  let passwordErrors = $state<string[]>([]);
 
   // Profile editing state
   let editDisplayName = $state('');
@@ -45,7 +53,67 @@
     await forceSync();
   }
 
-  async function handleSendMagicLink() {
+  function handlePasswordInput() {
+    // Live validation feedback
+    if (loginPassword && authMode === 'signup') {
+      const validation = validatePassword(loginPassword);
+      passwordErrors = validation.errors;
+    } else {
+      passwordErrors = [];
+    }
+  }
+
+  async function handleLogin() {
+    if (!loginEmail.trim() || !loginPassword) {
+      authActionError = 'Please enter your email and password';
+      return;
+    }
+
+    authActionLoading = true;
+    authActionError = null;
+
+    const { error } = await signInWithEmail(loginEmail.trim(), loginPassword);
+
+    if (error) {
+      authActionError = error;
+    }
+
+    authActionLoading = false;
+  }
+
+  async function handleSignUp() {
+    if (!loginEmail.trim() || !loginPassword) {
+      authActionError = 'Please enter your email and password';
+      return;
+    }
+
+    if (loginPassword !== confirmPassword) {
+      authActionError = 'Passwords do not match';
+      return;
+    }
+
+    // Validate password
+    const validation = validatePassword(loginPassword);
+    if (!validation.valid) {
+      authActionError = validation.errors.join('. ');
+      return;
+    }
+
+    authActionLoading = true;
+    authActionError = null;
+
+    const { error, needsVerification } = await signUpWithEmail(loginEmail.trim(), loginPassword);
+
+    if (error) {
+      authActionError = error;
+    } else if (needsVerification) {
+      verificationSent = true;
+    }
+
+    authActionLoading = false;
+  }
+
+  async function handleForgotPassword() {
     if (!loginEmail.trim()) {
       authActionError = 'Please enter your email address';
       return;
@@ -54,15 +122,25 @@
     authActionLoading = true;
     authActionError = null;
 
-    const { error } = await sendMagicLink(loginEmail.trim());
+    const { error } = await sendPasswordReset(loginEmail.trim());
 
     if (error) {
       authActionError = error;
     } else {
-      magicLinkSent = true;
+      resetEmailSent = true;
     }
 
     authActionLoading = false;
+  }
+
+  function resetAuthForm() {
+    loginEmail = '';
+    loginPassword = '';
+    confirmPassword = '';
+    verificationSent = false;
+    resetEmailSent = false;
+    authActionError = null;
+    passwordErrors = [];
   }
 
   async function handleSignOut() {
@@ -269,13 +347,22 @@
       </div>
     {:else}
       <div class="auth-status logged-out">
-        {#if magicLinkSent}
-          <div class="magic-link-sent">
+        {#if verificationSent}
+          <div class="verification-sent">
             <h3>Check your email</h3>
-            <p>We sent a magic link to <strong>{loginEmail}</strong></p>
-            <p class="auth-desc">Click the link in the email to sign in. You can close this page.</p>
-            <button class="btn btn-secondary" onclick={() => { magicLinkSent = false; loginEmail = ''; }}>
-              Use a different email
+            <p>We sent a verification link to <strong>{loginEmail}</strong></p>
+            <p class="auth-desc">Click the link in the email to verify your account and sign in.</p>
+            <button class="btn btn-secondary" onclick={() => { resetAuthForm(); authMode = 'login'; }}>
+              Back to login
+            </button>
+          </div>
+        {:else if resetEmailSent}
+          <div class="verification-sent">
+            <h3>Check your email</h3>
+            <p>We sent a password reset link to <strong>{loginEmail}</strong></p>
+            <p class="auth-desc">Click the link in the email to reset your password.</p>
+            <button class="btn btn-secondary" onclick={() => { resetAuthForm(); authMode = 'login'; }}>
+              Back to login
             </button>
           </div>
         {:else}
@@ -306,23 +393,129 @@
             <span>or</span>
           </div>
 
-          <!-- Magic Link -->
-          <form class="auth-form" onsubmit={(e) => { e.preventDefault(); handleSendMagicLink(); }}>
-            <div class="form-group">
-              <label for="login-email">Email address</label>
-              <input
-                type="email"
-                id="login-email"
-                bind:value={loginEmail}
-                placeholder="you@example.com"
-                disabled={authActionLoading}
-                required
-              />
-            </div>
-            <button type="submit" class="btn btn-secondary" disabled={authActionLoading}>
-              {authActionLoading ? 'Sending...' : 'Send Magic Link'}
+          <!-- Auth Mode Tabs -->
+          <div class="auth-tabs">
+            <button
+              class="auth-tab"
+              class:active={authMode === 'login'}
+              onclick={() => { authMode = 'login'; authActionError = null; passwordErrors = []; }}
+            >
+              Sign In
             </button>
-          </form>
+            <button
+              class="auth-tab"
+              class:active={authMode === 'signup'}
+              onclick={() => { authMode = 'signup'; authActionError = null; passwordErrors = []; }}
+            >
+              Create Account
+            </button>
+          </div>
+
+          {#if authMode === 'forgot'}
+            <!-- Forgot Password Form -->
+            <form class="auth-form" onsubmit={(e) => { e.preventDefault(); handleForgotPassword(); }}>
+              <p class="auth-desc">Enter your email and we'll send you a link to reset your password.</p>
+              <div class="form-group">
+                <label for="reset-email">Email address</label>
+                <input
+                  type="email"
+                  id="reset-email"
+                  bind:value={loginEmail}
+                  placeholder="you@example.com"
+                  disabled={authActionLoading}
+                  required
+                />
+              </div>
+              <button type="submit" class="btn btn-primary" disabled={authActionLoading}>
+                {authActionLoading ? 'Sending...' : 'Send Reset Link'}
+              </button>
+              <button type="button" class="btn btn-link" onclick={() => { authMode = 'login'; authActionError = null; }}>
+                Back to login
+              </button>
+            </form>
+          {:else if authMode === 'signup'}
+            <!-- Sign Up Form -->
+            <form class="auth-form" onsubmit={(e) => { e.preventDefault(); handleSignUp(); }}>
+              <div class="form-group">
+                <label for="signup-email">Email address</label>
+                <input
+                  type="email"
+                  id="signup-email"
+                  bind:value={loginEmail}
+                  placeholder="you@example.com"
+                  disabled={authActionLoading}
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="signup-password">Password</label>
+                <input
+                  type="password"
+                  id="signup-password"
+                  bind:value={loginPassword}
+                  oninput={handlePasswordInput}
+                  placeholder="Create a strong password"
+                  disabled={authActionLoading}
+                  required
+                />
+                {#if passwordErrors.length > 0}
+                  <ul class="password-requirements">
+                    {#each passwordErrors as err}
+                      <li class="requirement-error">{err}</li>
+                    {/each}
+                  </ul>
+                {:else if loginPassword.length > 0}
+                  <p class="password-valid">Password meets requirements</p>
+                {/if}
+              </div>
+              <div class="form-group">
+                <label for="signup-confirm">Confirm password</label>
+                <input
+                  type="password"
+                  id="signup-confirm"
+                  bind:value={confirmPassword}
+                  placeholder="Confirm your password"
+                  disabled={authActionLoading}
+                  required
+                />
+              </div>
+              <button type="submit" class="btn btn-primary" disabled={authActionLoading || passwordErrors.length > 0}>
+                {authActionLoading ? 'Creating account...' : 'Create Account'}
+              </button>
+            </form>
+          {:else}
+            <!-- Login Form -->
+            <form class="auth-form" onsubmit={(e) => { e.preventDefault(); handleLogin(); }}>
+              <div class="form-group">
+                <label for="login-email">Email address</label>
+                <input
+                  type="email"
+                  id="login-email"
+                  bind:value={loginEmail}
+                  placeholder="you@example.com"
+                  disabled={authActionLoading}
+                  required
+                />
+              </div>
+              <div class="form-group">
+                <label for="login-password">Password</label>
+                <input
+                  type="password"
+                  id="login-password"
+                  bind:value={loginPassword}
+                  placeholder="Your password"
+                  disabled={authActionLoading}
+                  required
+                />
+              </div>
+              <button type="submit" class="btn btn-primary" disabled={authActionLoading}>
+                {authActionLoading ? 'Signing in...' : 'Sign In'}
+              </button>
+              <button type="button" class="btn btn-link" onclick={() => { authMode = 'forgot'; authActionError = null; }}>
+                Forgot password?
+              </button>
+            </form>
+          {/if}
         {/if}
       </div>
     {/if}
@@ -605,20 +798,89 @@
     gap: var(--spacing-md);
   }
 
-  .magic-link-sent {
+  .verification-sent {
     background: rgba(74, 222, 128, 0.1);
     border: 1px solid #4ade80;
     padding: var(--spacing-lg);
     border-radius: var(--radius-lg);
   }
 
-  .magic-link-sent h3 {
+  .verification-sent h3 {
     color: #4ade80;
     margin: 0 0 var(--spacing-sm);
   }
 
-  .magic-link-sent p {
+  .verification-sent p {
     margin: 0 0 var(--spacing-sm);
+  }
+
+  .auth-tabs {
+    display: flex;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
+    max-width: 400px;
+  }
+
+  .auth-tab {
+    flex: 1;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+    color: var(--color-text-muted);
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .auth-tab:hover {
+    background: var(--color-surface);
+  }
+
+  .auth-tab.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+  }
+
+  .btn-link {
+    background: none;
+    border: none;
+    color: var(--color-primary);
+    padding: var(--spacing-sm) 0;
+    font-size: 0.875rem;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  .btn-link:hover {
+    color: var(--color-text);
+  }
+
+  .password-requirements {
+    list-style: none;
+    padding: 0;
+    margin: var(--spacing-xs) 0 0;
+    font-size: 0.75rem;
+  }
+
+  .requirement-error {
+    color: #ef4444;
+    padding: 2px 0;
+  }
+
+  .requirement-error::before {
+    content: "✗ ";
+  }
+
+  .password-valid {
+    color: #4ade80;
+    font-size: 0.75rem;
+    margin: var(--spacing-xs) 0 0;
+  }
+
+  .password-valid::before {
+    content: "✓ ";
   }
 
   /* Profile Form */
