@@ -2,18 +2,43 @@
   import { browser } from '$app/environment';
   import type { LocalFingering } from '@gigwidget/core';
 
-  // Map our instrument IDs to chord-component's expected names
-  const INSTRUMENT_ID_TO_NAME: Record<string, string> = {
-    'guitar': 'Standard Guitar',
-    'ukulele': 'Standard Ukulele',
-    'baritone-ukulele': 'Baritone Ukulele',
-    'mandolin': 'Standard Mandolin',
-    'drop-d-guitar': 'Drop-D Guitar',
-    '5ths-ukulele': '5ths tuned Ukulele',
+  // Map our instrument IDs to chord-component's expected names and string counts
+  const INSTRUMENT_CONFIG: Record<string, { name: string; strings: number }> = {
+    'guitar': { name: 'Standard Guitar', strings: 6 },
+    'ukulele': { name: 'Standard Ukulele', strings: 4 },
+    'baritone-ukulele': { name: 'Baritone Ukulele', strings: 4 },
+    'mandolin': { name: 'Standard Mandolin', strings: 4 },
+    'drop-d-guitar': { name: 'Drop-D Guitar', strings: 6 },
+    '5ths-ukulele': { name: '5ths tuned Ukulele', strings: 4 },
   };
 
   function getChordComponentInstrumentName(instrumentId: string): string {
-    return INSTRUMENT_ID_TO_NAME[instrumentId] || instrumentId;
+    return INSTRUMENT_CONFIG[instrumentId]?.name || instrumentId;
+  }
+
+  function getStringCount(instrumentId: string): number {
+    return INSTRUMENT_CONFIG[instrumentId]?.strings || 4;
+  }
+
+  // Convert chord-component's sparse fingers format to our dense positions format
+  // chord-component: fingers = [[string, fret], ...] (1-indexed strings)
+  // our format: positions = [fret, fret, ...] (one per string, 0-indexed)
+  function convertChordComponentToPositions(
+    fingers: [number, number][],
+    numStrings: number
+  ): number[] {
+    // Initialize all strings as muted (-1)
+    const positions = new Array(numStrings).fill(-1);
+
+    for (const [stringNum, fret] of fingers) {
+      // chord-component uses 1-indexed strings
+      const index = stringNum - 1;
+      if (index >= 0 && index < numStrings) {
+        positions[index] = fret;
+      }
+    }
+
+    return positions;
   }
 
   interface Props {
@@ -124,29 +149,35 @@
       }
 
       const userId = user.id;
-      const targetInstrumentId = instrumentId || 'guitar';
 
       // Retrieve current chord data from chord-component's IndexedDB
-      console.log('[ChordEditor] Retrieving chord:', { userId, chordName, targetInstrumentId });
-      const currentChord = await indexedDBService.getUserChord(userId, chordName, targetInstrumentId);
+      // Key is instrument:chordName (no userId)
+      console.log('[ChordEditor] Retrieving chord:', { instrument: chordComponentInstrument, chordName });
+      const currentChord = await indexedDBService.getUserChord(chordComponentInstrument, chordName);
       console.log('[ChordEditor] Retrieved chord data:', currentChord);
 
-      if (!currentChord || !currentChord.positions || currentChord.positions.length === 0) {
+      if (!currentChord || !currentChord.fingers || currentChord.fingers.length === 0) {
         error = 'No chord data to save. Please create a chord first.';
         saving = false;
         return;
       }
 
-      // Convert to Gigwidget format
+      // Convert chord-component format to our format
+      const targetInstrumentId = instrumentId || 'guitar';
+      const numStrings = getStringCount(targetInstrumentId);
+      const positions = convertChordComponentToPositions(currentChord.fingers, numStrings);
+
       const fingering: LocalFingering = {
         id: existingFingering?.id ?? generateId(),
         userId,
         chordName,
         instrumentId: targetInstrumentId,
-        positions: [...currentChord.positions],
-        fingers: currentChord.fingers ? [...currentChord.fingers] : undefined,
+        positions,
+        // Note: chord-component's "fingers" is [string, fret] pairs, not finger numbers
+        // We don't have finger number data from chord-component, so omit it
+        fingers: undefined,
         barres: currentChord.barres ? currentChord.barres.map((b: any) => ({ ...b })) : undefined,
-        baseFret: currentChord.baseFret || 1,
+        baseFret: currentChord.position || 1, // chord-component uses "position" (singular)
         isDefault: existingFingering?.isDefault ?? false,
         createdAt: existingFingering?.createdAt ?? new Date(),
       };
