@@ -920,6 +920,7 @@ export async function upsertSystemChord(
     baseFret: number;
     description?: string;
   },
+  creatorId: string,
   creatorName: string
 ): Promise<{ data?: SupabaseSystemChord; error?: unknown }> {
   try {
@@ -930,6 +931,7 @@ export async function upsertSystemChord(
       fingers: chord.fingers ?? null,
       barres: chord.barres ?? null,
       base_fret: chord.baseFret,
+      created_by: creatorId,
       created_by_name: creatorName,
       description: chord.description ?? null,
       updated_at: new Date().toISOString(),

@@ -195,7 +195,7 @@
       };
 
       console.log('[SystemChordEditor] Saving to Supabase:', chordToSave);
-      const { error: saveError } = await upsertSystemChord(chordToSave, user.displayName);
+      const { error: saveError } = await upsertSystemChord(chordToSave, user.id, user.displayName);
 
       if (saveError) {
         error = 'Failed to save system chord';
