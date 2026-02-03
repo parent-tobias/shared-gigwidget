@@ -300,23 +300,25 @@ async function performInitialSync(userId: string): Promise<void> {
     const localOnlySongs = localSongs.filter(s => !cloudSongMap.has(s.id));
     const totalToPush = localOnlySongs.length;
 
+    // Check how many songs match between local and cloud (proves ID system is working)
+    const matchingCount = localSongs.filter(s => cloudSongMap.has(s.id)).length;
+
     // Debug: Log IDs to help diagnose sync issues
     if (localSongs.length > 0 && cloudSongs && cloudSongs.length > 0) {
       const sampleLocalIds = localSongs.slice(0, 3).map(s => s.id);
       const sampleCloudIds = cloudSongs.slice(0, 3).map(s => s.id);
       console.log(`[Sync] Sample local IDs: ${sampleLocalIds.join(', ')}`);
       console.log(`[Sync] Sample cloud IDs: ${sampleCloudIds.join(', ')}`);
-
-      // Check if any local IDs match cloud IDs
-      const matchingCount = localSongs.filter(s => cloudSongMap.has(s.id)).length;
       console.log(`[Sync] Matching songs (same ID in both): ${matchingCount}`);
     }
 
-    // Safety check: Skip bulk push if it looks like a potential duplicate scenario
-    // This prevents re-uploading entire library due to ID mismatches or cloud fetch issues
-    if (totalToPush > 100 && cloudSongs && cloudSongs.length > 100) {
+    // Safety check: Only block bulk push if it looks like a true ID mismatch
+    // - Many local-only songs AND cloud has many songs AND no matching songs at all
+    // If there ARE matching songs, the ID system is working correctly and this is
+    // likely a legitimate bulk import scenario
+    if (totalToPush > 100 && cloudSongs && cloudSongs.length > 100 && matchingCount === 0) {
       console.warn(`[Sync] WARNING: ${totalToPush} songs appear as "local only" but cloud already has ${cloudSongs.length} songs.`);
-      console.warn(`[Sync] This may indicate an ID mismatch issue. Skipping bulk push to prevent duplicates.`);
+      console.warn(`[Sync] No matching songs found - this indicates an ID mismatch issue. Skipping bulk push to prevent duplicates.`);
       pendingChanges = 0;
       lastSyncAt = new Date();
       syncStatus = 'idle';
