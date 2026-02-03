@@ -5,6 +5,20 @@
   import { upsertSystemChord, deleteSystemChord } from '$lib/stores/supabaseStore';
   import { clearSystemChordCacheForChord } from '$lib/services/chordResolution';
 
+  // Map our instrument IDs to chord-component's expected names
+  const INSTRUMENT_ID_TO_NAME: Record<string, string> = {
+    'guitar': 'Standard Guitar',
+    'ukulele': 'Standard Ukulele',
+    'baritone-ukulele': 'Baritone Ukulele',
+    'mandolin': 'Standard Mandolin',
+    'drop-d-guitar': 'Drop-D Guitar',
+    '5ths-ukulele': '5ths tuned Ukulele',
+  };
+
+  function getChordComponentInstrumentName(instrumentId: string): string {
+    return INSTRUMENT_ID_TO_NAME[instrumentId] || instrumentId;
+  }
+
   interface Props {
     chordName: string;
     instrumentId: string;
@@ -14,6 +28,9 @@
   }
 
   let { chordName, instrumentId, existingSystemChord, onSave, onCancel }: Props = $props();
+
+  // Get the chord-component compatible instrument name
+  let chordComponentInstrument = $derived(getChordComponentInstrumentName(instrumentId));
 
   // Permission check
   let user = $state<any>(null);
@@ -47,6 +64,17 @@
     }
   });
 
+  $effect(() => {
+    if (user && componentReady) {
+      console.log('[SystemChordEditor] Component ready to render:', {
+        user: user.displayName,
+        chordName,
+        instrumentId,
+        componentReady,
+      });
+    }
+  });
+
   async function loadUser() {
     try {
       const { getDatabase } = await import('@gigwidget/db');
@@ -64,16 +92,19 @@
     try {
       // Check if custom elements are already defined
       if (customElements.get('chord-editor')) {
+        console.log('[SystemChordEditor] chord-editor already registered');
         componentReady = true;
         return;
       }
 
       await import('@parent-tobias/chord-component');
+      console.log('[SystemChordEditor] chord-component loaded successfully');
       componentReady = true;
     } catch (err) {
-      console.error('Failed to load chord-component:', err);
+      console.error('[SystemChordEditor] Failed to load chord-component:', err);
       // If error is about already defined, component is still ready
       if (err instanceof DOMException && err.message.includes('already been defined')) {
+        console.log('[SystemChordEditor] Custom elements already defined, continuing anyway');
         componentReady = true;
       }
     }
@@ -210,9 +241,8 @@
         <div class="loading">Loading chord editor...</div>
       {:else}
         <chord-editor
-          chord-name={chordName}
-          instrument={instrumentId}
-          chord={JSON.stringify(chordData)}
+          chord={chordName}
+          instrument={chordComponentInstrument}
           user-id={user.id}
         ></chord-editor>
       {/if}
@@ -304,10 +334,13 @@
 
   .editor-content {
     min-height: 400px;
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .editor-content:has(.loading) {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: var(--spacing-lg);
   }
 
   .loading {
@@ -317,6 +350,7 @@
   chord-editor {
     display: block;
     width: 100%;
+    min-height: 400px;
   }
 
   .form-group {

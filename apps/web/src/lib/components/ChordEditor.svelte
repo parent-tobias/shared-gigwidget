@@ -2,6 +2,20 @@
   import { browser } from '$app/environment';
   import type { LocalFingering } from '@gigwidget/core';
 
+  // Map our instrument IDs to chord-component's expected names
+  const INSTRUMENT_ID_TO_NAME: Record<string, string> = {
+    'guitar': 'Standard Guitar',
+    'ukulele': 'Standard Ukulele',
+    'baritone-ukulele': 'Baritone Ukulele',
+    'mandolin': 'Standard Mandolin',
+    'drop-d-guitar': 'Drop-D Guitar',
+    '5ths-ukulele': '5ths tuned Ukulele',
+  };
+
+  function getChordComponentInstrumentName(instrumentId: string): string {
+    return INSTRUMENT_ID_TO_NAME[instrumentId] || instrumentId;
+  }
+
   interface Props {
     chordName: string;
     instrumentId?: string;
@@ -11,6 +25,9 @@
   }
 
   let { chordName, instrumentId, existingFingering, onSave, onCancel }: Props = $props();
+
+  // Get the chord-component compatible instrument name
+  let chordComponentInstrument = $derived(getChordComponentInstrumentName(instrumentId || 'guitar'));
 
   // Form state - provide default structure for new chords
   let chordData = $state<any>(
@@ -168,9 +185,8 @@
       <div class="loading">Loading chord editor...</div>
     {:else}
       <chord-editor
-        chord-name={chordName}
-        instrument={instrumentId || 'guitar'}
-        chord={JSON.stringify(chordData)}
+        chord={chordName}
+        instrument={chordComponentInstrument}
         user-id={user.id}
       ></chord-editor>
     {/if}
@@ -217,6 +233,9 @@
 
   .editor-content {
     min-height: 400px;
+  }
+
+  .editor-content:has(.loading) {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -229,6 +248,7 @@
   chord-editor {
     display: block;
     width: 100%;
+    min-height: 400px;
   }
 
   .editor-actions {
