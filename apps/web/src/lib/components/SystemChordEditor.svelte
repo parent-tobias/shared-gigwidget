@@ -4,6 +4,7 @@
   import type { SupabaseSystemChord } from '$lib/stores/supabaseStore';
   import { upsertSystemChord, deleteSystemChord } from '$lib/stores/supabaseStore';
   import { clearSystemChordCacheForChord } from '$lib/services/chordResolution';
+  import { getSupabaseUserId } from '$lib/stores/authStore.svelte';
 
   // Map our instrument IDs to chord-component's expected names and string counts
   const INSTRUMENT_CONFIG: Record<string, { name: string; strings: number }> = {
@@ -194,8 +195,16 @@
         description: description || undefined,
       };
 
+      // Use Supabase auth user ID (not local Dexie ID) for created_by
+      const supabaseUserId = getSupabaseUserId();
+      if (!supabaseUserId) {
+        error = 'You must be signed in to create system chords';
+        saving = false;
+        return;
+      }
+
       console.log('[SystemChordEditor] Saving to Supabase:', chordToSave);
-      const { error: saveError } = await upsertSystemChord(chordToSave, user.id, user.displayName);
+      const { error: saveError } = await upsertSystemChord(chordToSave, supabaseUserId, user.displayName);
 
       if (saveError) {
         error = 'Failed to save system chord';
