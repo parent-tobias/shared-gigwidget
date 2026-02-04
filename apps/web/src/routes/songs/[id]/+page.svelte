@@ -105,6 +105,24 @@
       .join('\n');
   }
 
+  // Extract the instrument from the song content's {instrument: ...} directive
+  function extractInstrumentFromContent(content: string): string | null {
+    const match = content.match(/^\{instrument\s*:\s*([^}]+)\}/im);
+    if (match) {
+      return match[1].trim();
+    }
+    return null;
+  }
+
+  // Get the effective instrument for this song (song directive > user preference)
+  const songInstrument = $derived.by(() => {
+    if (!selectedArrangement) return null;
+    return extractInstrumentFromContent(selectedArrangement.content);
+  });
+
+  // The instrument to use for chord operations: song's instrument > user's default
+  const effectiveInstrument = $derived(songInstrument || defaultInstrument || 'Standard Guitar');
+
   // Local transpose function (will be loaded async)
   let transposeContentLocal = (content: string, semitones: number) => content;
 
@@ -619,7 +637,7 @@
         userId: currentUser.id,
         songId: song.id,
         chordName: selectedChordForModal,
-        instrumentId: defaultInstrument || 'guitar',
+        instrumentId: effectiveInstrument,
         selectedSource: source as any,
         selectedVariationId: variationId,
         createdAt: new Date(),
@@ -871,7 +889,7 @@
                 content={displayContent}
                 theme={rendererTheme === 'dark' ? 'chordpro-dark' : 'chordpro-light'}
                 chord-position={chordListPosition}
-                instrument={defaultInstrument || 'Standard Guitar'}
+                instrument={effectiveInstrument}
               ></chordpro-renderer>
             </div>
 
@@ -1094,7 +1112,7 @@
   <ChordSelectionModal
     songId={song.id}
     chordName={selectedChordForModal}
-    instrumentId={defaultInstrument || 'guitar'}
+    instrumentId={effectiveInstrument}
     currentOverride={getCurrentOverride(selectedChordForModal)}
     onSelect={handleChordSelect}
     onReset={handleChordReset}

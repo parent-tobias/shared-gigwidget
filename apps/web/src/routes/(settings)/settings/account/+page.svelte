@@ -264,6 +264,10 @@
       avatarFile = null;
       profileSuccess = true;
 
+      // Refresh the global user store so sidebar updates immediately
+      const { refreshUser } = await import('$lib/stores/userStore.svelte');
+      await refreshUser();
+
       setTimeout(() => { profileSuccess = false; }, 3000);
     } catch (err) {
       console.error('Failed to save profile:', err);

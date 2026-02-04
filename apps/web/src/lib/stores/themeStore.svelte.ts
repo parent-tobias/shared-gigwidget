@@ -34,6 +34,21 @@ export async function initializeTheme(): Promise<void> {
   if (!browser || initialized) return;
   initialized = true;
 
+  await loadAndApplyTheme();
+}
+
+/**
+ * Refresh theme from database (call after sync completes)
+ */
+export async function refreshTheme(): Promise<void> {
+  if (!browser) return;
+  await loadAndApplyTheme();
+}
+
+/**
+ * Internal function to load and apply theme from database
+ */
+async function loadAndApplyTheme(): Promise<void> {
   try {
     const { getDatabase } = await import('@gigwidget/db');
     const db = getDatabase();

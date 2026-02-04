@@ -1,5 +1,8 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
+  import { page } from '$app/stores';
   import NavItem from './NavItem.svelte';
+  import { getUserStore, initializeUserStore } from '$lib/stores/userStore.svelte';
 
   interface Props {
     collapsed?: boolean;
@@ -7,6 +10,22 @@
   }
 
   let { collapsed = false, onToggle }: Props = $props();
+
+  // Get reactive user store
+  const userStore = getUserStore();
+
+  // Initialize user store on mount
+  $effect(() => {
+    if (browser) {
+      initializeUserStore();
+    }
+  });
+
+  // Determine if account link is active
+  const isAccountActive = $derived(
+    $page.url.pathname === '/settings/account' ||
+    $page.url.pathname.startsWith('/settings/account/')
+  );
 </script>
 
 <aside class="sidebar" class:collapsed>
@@ -44,7 +63,28 @@
   </nav>
 
   <div class="sidebar-footer">
-    <NavItem href="/settings/account" icon="user">Account</NavItem>
+    {#if userStore.isLoggedIn && userStore.displayName}
+      <!-- Show user avatar and name when logged in -->
+      <a
+        href="/settings/account"
+        class="account-link"
+        class:active={isAccountActive}
+        aria-current={isAccountActive ? 'page' : undefined}
+      >
+        {#if userStore.avatarUrl}
+          <img src={userStore.avatarUrl} alt="" class="user-avatar" />
+        {:else}
+          <span class="user-avatar-placeholder">
+            {userStore.displayName.charAt(0).toUpperCase()}
+          </span>
+        {/if}
+        {#if !collapsed}
+          <span class="user-name">{userStore.displayName}</span>
+        {/if}
+      </a>
+    {:else}
+      <NavItem href="/settings/account" icon="user">Account</NavItem>
+    {/if}
   </div>
 </aside>
 
@@ -140,5 +180,79 @@
 
   .sidebar.collapsed .sidebar-header {
     justify-content: center;
+  }
+
+  /* User account link with avatar */
+  .account-link {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+    font-weight: 500;
+    font-size: 0.9375rem;
+  }
+
+  .account-link:hover {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .account-link.active {
+    background-color: var(--color-primary);
+    color: white;
+  }
+
+  .account-link.active:hover {
+    background-color: var(--color-primary);
+    filter: brightness(1.1);
+  }
+
+  .user-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .user-avatar-placeholder {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background-color: var(--color-primary);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .account-link.active .user-avatar-placeholder {
+    background-color: white;
+    color: var(--color-primary);
+  }
+
+  .user-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Collapsed state for account link */
+  .sidebar.collapsed .account-link {
+    justify-content: center;
+    padding: var(--spacing-sm);
+  }
+
+  .sidebar.collapsed .user-name {
+    display: none;
   }
 </style>

@@ -353,10 +353,33 @@ async function performInitialSync(userId: string): Promise<void> {
     pendingChanges = 0;
     console.log('[Sync] Initial sync complete');
 
+    // Apply synced preferences immediately (theme, compact view, etc.)
+    await applyPreferencesFromDatabase();
+
   } catch (err) {
     console.error('[Sync] Initial sync failed:', err);
     syncError = err instanceof Error ? err.message : 'Sync failed';
     syncStatus = 'error';
+  }
+}
+
+/**
+ * Apply preferences from the database to the UI.
+ * Called after sync completes to immediately reflect synced settings.
+ */
+async function applyPreferencesFromDatabase(): Promise<void> {
+  try {
+    // Refresh theme
+    const { refreshTheme } = await import('./themeStore.svelte');
+    await refreshTheme();
+
+    // Refresh user data (for sidebar avatar/name)
+    const { refreshUser } = await import('./userStore.svelte');
+    await refreshUser();
+
+    console.log('[Sync] Applied preferences from database');
+  } catch (err) {
+    console.error('[Sync] Failed to apply preferences:', err);
   }
 }
 
