@@ -1,7 +1,7 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import type { ResolvedChord, SongChordOverride, LocalFingering } from '@gigwidget/core';
-  import { generateId, hasPermission } from '@gigwidget/core';
+  import { hasPermission } from '@gigwidget/core';
   import ChordEditor from './ChordEditor.svelte';
 
   interface Props {
@@ -14,19 +14,44 @@
     onClose: () => void;
   }
 
-  let { songId, chordName, instrumentId, currentOverride, onSelect, onReset, onClose }: Props =
+  let { songId: _songId, chordName, instrumentId, currentOverride, onSelect, onReset, onClose }: Props =
     $props();
 
-  let chordVariations = $state<ResolvedChord[]>([]);
+  // Extended variation type that includes ID for user chords
+  interface VariationWithId extends ResolvedChord {
+    id?: string;
+  }
+
+  let chordVariations = $state<VariationWithId[]>([]);
   let loading = $state(true);
-  let componentReady = $state(false);
+  let svguitarReady = $state(false);
   let showEditor = $state(false);
   let user = $state<any>(null);
   let canEditChords = $derived(user && hasPermission(user, 'edit_chords'));
+  let deletingId = $state<string | null>(null);
+
+  // SVGuitar reference
+  let SVGuitarChord: any = null;
+
+  // Instrument string count for SVGuitar
+  const INSTRUMENT_STRINGS: Record<string, number> = {
+    'guitar': 6,
+    'Standard Guitar': 6,
+    'ukulele': 4,
+    'Standard Ukulele': 4,
+    'baritone-ukulele': 4,
+    'Baritone Ukulele': 4,
+    'mandolin': 4,
+    'Standard Mandolin': 4,
+    'drop-d-guitar': 6,
+    'Drop-D Guitar': 6,
+    '5ths-ukulele': 4,
+    '5ths tuned Ukulele': 4,
+  };
 
   $effect(() => {
     if (browser) {
-      loadChordComponent();
+      loadSVGuitar();
       loadUser();
       loadVariations();
     }
@@ -45,46 +70,60 @@
     }
   }
 
-  async function loadChordComponent() {
+  async function loadSVGuitar() {
     try {
-      // Check if custom elements are already defined
-      if (customElements.get('chord-diagram')) {
-        componentReady = true;
-        return;
-      }
-
-      await import('@parent-tobias/chord-component');
-      componentReady = true;
+      const svguitar = await import('svguitar');
+      SVGuitarChord = svguitar.SVGuitarChord;
+      svguitarReady = true;
     } catch (err) {
-      console.error('Failed to load chord-component:', err);
-      // If error is about already defined, component is still ready
-      if (err instanceof DOMException && err.message.includes('already been defined')) {
-        componentReady = true;
-      }
+      console.error('Failed to load SVGuitar:', err);
     }
   }
 
   async function loadVariations() {
     loading = true;
     try {
-      const { getDatabase } = await import('@gigwidget/db');
+      const { LocalFingeringRepository } = await import('@gigwidget/db');
       const { getAllChordVariationsWithSystemChords } = await import('$lib/services/chordResolution');
 
-      const db = getDatabase();
-      const users = await db.users.toArray();
-
-      if (users.length === 0) {
+      if (!user) {
         loading = false;
         return;
       }
 
-      const userId = users[0].id;
+      const userId = user.id;
 
-      chordVariations = await getAllChordVariationsWithSystemChords(
+      // Get variations from resolution service
+      const variations = await getAllChordVariationsWithSystemChords(
         userId,
         chordName,
         instrumentId
       );
+
+      // For user-custom variations, we need to get the IDs
+      // Query user's local fingerings to match them up
+      const userFingerings = await LocalFingeringRepository.getByUserAndChord(
+        userId,
+        chordName,
+        instrumentId
+      );
+
+      // Create a map of user fingerings by their position signature
+      const userFingeringMap = new Map<string, LocalFingering>();
+      for (const f of userFingerings) {
+        const sig = f.positions.join(',') + ':' + f.baseFret;
+        userFingeringMap.set(sig, f);
+      }
+
+      // Augment variations with IDs where possible
+      chordVariations = variations.map((v) => {
+        if (v.source === 'user-custom') {
+          const sig = v.positions.join(',') + ':' + v.baseFret;
+          const matched = userFingeringMap.get(sig);
+          return { ...v, id: matched?.id };
+        }
+        return v;
+      });
     } catch (err) {
       console.error('Failed to load chord variations:', err);
     } finally {
@@ -92,31 +131,45 @@
     }
   }
 
-  function handleSelect(variation: ResolvedChord) {
-    // Determine variation ID based on source
-    let variationId: string | undefined;
-
-    if (variation.source === 'user-custom' || variation.source === 'system-override') {
-      // For user-custom and system-override, we'd need the actual ID
-      // For now, we'll pass undefined and let the caller figure it out
-      variationId = undefined;
-    }
-
-    onSelect(variation.source, variationId);
+  function handleSelect(variation: VariationWithId) {
+    onSelect(variation.source, variation.id);
   }
 
   function handleCreateCustom() {
     showEditor = true;
   }
 
-  function handleEditorSave(fingering: LocalFingering) {
-    // After saving, reload variations and return to list view
+  function handleEditorSave(_fingering: LocalFingering) {
     showEditor = false;
     loadVariations();
   }
 
   function handleEditorCancel() {
     showEditor = false;
+  }
+
+  async function handleDeleteUserChord(variation: VariationWithId, e: MouseEvent) {
+    e.stopPropagation(); // Don't trigger selection
+
+    if (!variation.id) {
+      console.error('No ID for user chord to delete');
+      return;
+    }
+
+    if (!confirm('Delete this custom chord fingering?')) {
+      return;
+    }
+
+    deletingId = variation.id;
+    try {
+      const { LocalFingeringRepository } = await import('@gigwidget/db');
+      await LocalFingeringRepository.delete(variation.id);
+      await loadVariations();
+    } catch (err) {
+      console.error('Failed to delete user chord:', err);
+    } finally {
+      deletingId = null;
+    }
   }
 
   function getSourceBadgeClass(source: ResolvedChord['source']): string {
@@ -151,6 +204,84 @@
       onClose();
     }
   }
+
+  /**
+   * Render a chord diagram using SVGuitar directly via use: action
+   */
+  function renderChordDiagram(container: HTMLElement, variation: ResolvedChord) {
+    if (!SVGuitarChord || !container) return;
+
+    container.innerHTML = '';
+
+    const numStrings = INSTRUMENT_STRINGS[instrumentId] || 4;
+
+    // Convert positions to fingers format for SVGuitar
+    // positions is [fret, fret, ...] per string (0 = open, -1 = muted)
+    const fingers: [number, number | 'x'][] = [];
+    for (let i = 0; i < variation.positions.length; i++) {
+      const fret = variation.positions[i];
+      const stringNum = i + 1; // 1-indexed
+      if (fret === -1) {
+        fingers.push([stringNum, 'x']);
+      } else {
+        fingers.push([stringNum, fret]);
+      }
+    }
+
+    try {
+      const chart = new SVGuitarChord(container);
+      chart
+        .configure({
+          strings: numStrings,
+          frets: 4,
+          position: variation.baseFret || 1,
+          fretSize: 1.5,
+          nutWidth: 10,
+          sidePadding: 0.2,
+          titleBottomMargin: 0,
+          color: '#e2e8f0',
+          backgroundColor: 'transparent',
+          barreChordRadius: 0.3,
+          emptyStringIndicatorSize: 0.5,
+          strokeWidth: 2,
+          fretLabelPosition: 'right',
+          fretLabelFontSize: 38,
+          fingerSize: 0.6,
+          fingerTextSize: 22,
+        })
+        .chord({
+          fingers,
+          barres: variation.barres || [],
+        })
+        .draw();
+    } catch (err) {
+      console.error('Error rendering chord diagram:', err);
+      container.innerHTML = '<span style="color: #fc8181; font-size: 0.75rem;">Error</span>';
+    }
+  }
+
+  // Svelte action for rendering chord diagrams
+  function chordDiagramAction(node: HTMLElement, variation: ResolvedChord) {
+    if (svguitarReady) {
+      renderChordDiagram(node, variation);
+    }
+
+    return {
+      update(newVariation: ResolvedChord) {
+        if (svguitarReady) {
+          renderChordDiagram(node, newVariation);
+        }
+      }
+    };
+  }
+
+  // Re-render diagrams when SVGuitar becomes ready
+  $effect(() => {
+    if (svguitarReady && chordVariations.length > 0) {
+      // Force a re-render by touching variations
+      chordVariations = [...chordVariations];
+    }
+  });
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -192,43 +323,49 @@
         </p>
 
         <div class="variations-grid">
-          {#each chordVariations as variation (variation.source + variation.baseFret)}
-            <button
-              type="button"
-              class="variation-option"
-              class:selected={isCurrentlySelected(variation)}
-              onclick={() => handleSelect(variation)}
-            >
-              {#if componentReady}
-                <chord-diagram
-                  chord={JSON.stringify({
-                    positions: variation.positions,
-                    fingers: variation.fingers,
-                    barres: variation.barres,
-                    baseFret: variation.baseFret,
-                  })}
-                  size="medium"
-                ></chord-diagram>
-              {:else}
-                <div class="positions-text">{formatPositions(variation.positions)}</div>
-              {/if}
+          {#each chordVariations as variation (variation.source + variation.baseFret + (variation.id || ''))}
+            <div class="variation-card">
+              <button
+                type="button"
+                class="variation-option"
+                class:selected={isCurrentlySelected(variation)}
+                onclick={() => handleSelect(variation)}
+              >
+                {#if svguitarReady}
+                  <div class="diagram-container" use:chordDiagramAction={variation}></div>
+                {:else}
+                  <div class="positions-text">{formatPositions(variation.positions)}</div>
+                {/if}
 
-              <span class="source-badge {getSourceBadgeClass(variation.source)}">
-                {getSourceLabel(variation.source)}
-              </span>
+                <span class="source-badge {getSourceBadgeClass(variation.source)}">
+                  {getSourceLabel(variation.source)}
+                </span>
 
-              {#if variation.metadata?.description}
-                <p class="description">{variation.metadata.description}</p>
-              {/if}
+                {#if variation.metadata?.description}
+                  <p class="description">{variation.metadata.description}</p>
+                {/if}
 
-              {#if variation.metadata?.createdByName}
-                <p class="creator">by {variation.metadata.createdByName}</p>
-              {/if}
+                {#if variation.metadata?.createdByName}
+                  <p class="creator">by {variation.metadata.createdByName}</p>
+                {/if}
 
-              {#if isCurrentlySelected(variation)}
-                <div class="selected-indicator">✓ Currently Selected</div>
+                {#if isCurrentlySelected(variation)}
+                  <div class="selected-indicator">✓ Selected</div>
+                {/if}
+              </button>
+
+              {#if variation.source === 'user-custom' && variation.id && canEditChords}
+                <button
+                  type="button"
+                  class="delete-btn"
+                  onclick={(e) => handleDeleteUserChord(variation, e)}
+                  disabled={deletingId === variation.id}
+                  title="Delete this custom fingering"
+                >
+                  {deletingId === variation.id ? '...' : '×'}
+                </button>
               {/if}
-            </button>
+            </div>
           {/each}
         </div>
 
@@ -336,7 +473,7 @@
 
   .variations-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: var(--spacing-md);
     margin-bottom: var(--spacing-lg);
   }
@@ -347,17 +484,23 @@
     }
   }
 
+  .variation-card {
+    position: relative;
+  }
+
   .variation-option {
     position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     padding: var(--spacing-md);
+    padding-top: var(--spacing-lg);
     background-color: var(--color-surface);
     border: 2px solid transparent;
     border-radius: var(--radius-md);
     cursor: pointer;
     transition: all var(--transition-fast);
+    width: 100%;
   }
 
   .variation-option:hover {
@@ -371,10 +514,27 @@
     background-color: rgba(233, 69, 96, 0.1);
   }
 
+  .diagram-container {
+    width: 100px;
+    height: 110px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .diagram-container :global(svg) {
+    max-width: 100%;
+    max-height: 100%;
+  }
+
   .positions-text {
     font-family: monospace;
     font-size: 0.875rem;
     padding: var(--spacing-sm);
+    height: 110px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .source-badge {
@@ -424,14 +584,46 @@
 
   .selected-indicator {
     position: absolute;
-    top: 8px;
-    right: 8px;
+    top: 4px;
+    left: 4px;
     background-color: var(--color-primary);
     color: white;
-    font-size: 0.65rem;
-    padding: 2px 6px;
+    font-size: 0.6rem;
+    padding: 2px 4px;
     border-radius: 4px;
     font-weight: 600;
+  }
+
+  .delete-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    background-color: rgba(244, 67, 54, 0.8);
+    color: white;
+    border-radius: 50%;
+    font-size: 0.875rem;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: all var(--transition-fast);
+    z-index: 1;
+  }
+
+  .delete-btn:hover:not(:disabled) {
+    background-color: #f44336;
+    transform: scale(1.1);
+  }
+
+  .delete-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .reset-section {
@@ -447,11 +639,5 @@
     display: flex;
     justify-content: center;
     margin-top: var(--spacing-md);
-  }
-
-  chord-diagram {
-    display: block;
-    width: 100px;
-    height: 120px;
   }
 </style>
