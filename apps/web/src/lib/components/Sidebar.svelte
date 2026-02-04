@@ -60,6 +60,17 @@
       <NavItem href="/session" icon="users">Sessions</NavItem>
       <NavItem href="/settings" icon="settings">Settings</NavItem>
     </div>
+
+    {#if userStore.isModerator}
+      <div class="nav-divider"></div>
+
+      <div class="nav-section">
+        <span class="nav-section-label" class:hidden={collapsed}>Admin</span>
+        <NavItem href="/admin/songs" icon="database">Songs</NavItem>
+        <NavItem href="/admin/system-chords" icon="grid">Chords</NavItem>
+        <NavItem href="/admin/instruments" icon="guitar">Instruments</NavItem>
+      </div>
+    {/if}
   </nav>
 
   <div class="sidebar-footer">
@@ -153,6 +164,20 @@
     height: 1px;
     background-color: var(--color-border);
     margin: var(--spacing-md) var(--spacing-sm);
+  }
+
+  .nav-section-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-muted);
+    padding: var(--spacing-xs) var(--spacing-md);
+    margin-bottom: var(--spacing-xs);
+  }
+
+  .nav-section-label.hidden {
+    display: none;
   }
 
   .sidebar-footer {

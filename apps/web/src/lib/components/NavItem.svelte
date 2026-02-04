@@ -4,7 +4,7 @@
 
   interface Props {
     href: string;
-    icon?: 'globe' | 'music' | 'folder' | 'settings' | 'list' | 'user' | 'download' | 'users';
+    icon?: 'globe' | 'music' | 'folder' | 'settings' | 'list' | 'user' | 'download' | 'users' | 'database' | 'grid' | 'guitar';
     children: Snippet;
   }
 
@@ -69,6 +69,27 @@
           <circle cx="9" cy="7" r="4"/>
           <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
           <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      {:else if icon === 'database'}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="12" cy="5" rx="9" ry="3"/>
+          <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+          <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+        </svg>
+      {:else if icon === 'grid'}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7"/>
+          <rect x="14" y="3" width="7" height="7"/>
+          <rect x="14" y="14" width="7" height="7"/>
+          <rect x="3" y="14" width="7" height="7"/>
+        </svg>
+      {:else if icon === 'guitar'}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11.9 2l.7 2.8c.1.4.5.7.9.7h1c.4 0 .8-.3.9-.7L16.1 2"/>
+          <path d="M14 5.5a3 3 0 0 1 3 3v1a2 2 0 0 1-2 2h-1"/>
+          <path d="M10 5.5a3 3 0 0 0-3 3v1a2 2 0 0 0 2 2h1"/>
+          <path d="M12 11.5v3"/>
+          <path d="M8 17.5a4 4 0 0 0 8 0c0-2-2-3-4-3s-4 1-4 3z"/>
         </svg>
       {/if}
     </span>

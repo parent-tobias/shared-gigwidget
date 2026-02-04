@@ -82,6 +82,7 @@ export interface UserStoreState {
   isLoggedIn: boolean;
   displayName: string | null;
   avatarUrl: string | null;
+  isModerator: boolean;
 }
 
 export function getUserStore(): UserStoreState {
@@ -91,5 +92,6 @@ export function getUserStore(): UserStoreState {
     get isLoggedIn() { return currentUser !== null && currentUser.supabaseId !== undefined; },
     get displayName() { return currentUser?.displayName ?? null; },
     get avatarUrl() { return currentUser?.avatarUrl ?? null; },
+    get isModerator() { return currentUser?.subscriptionTier === 'mod'; },
   };
 }

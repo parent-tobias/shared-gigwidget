@@ -200,6 +200,41 @@ export async function loadPublicSongs(
 }
 
 /**
+ * Load all songs from Supabase (for moderators/admin)
+ * Note: This requires moderator privileges via RLS policies
+ */
+export async function loadAllSongsAdmin(
+  options: { limit?: number; offset?: number; search?: string } = {}
+): Promise<{ data?: SupabaseSong[]; error?: unknown; count?: number }> {
+  const { limit = 100, offset = 0, search = '' } = options;
+
+  try {
+    let queryBuilder = supabase
+      .from('songs')
+      .select('*', { count: 'exact' });
+
+    if (search.trim()) {
+      queryBuilder = queryBuilder.or(`title.ilike.%${search}%,artist.ilike.%${search}%`);
+    }
+
+    const { data, error, count } = await queryBuilder
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('Error loading all songs (admin):', error);
+      return { error };
+    }
+
+    console.log(`[Admin] Loaded ${data?.length || 0} songs (total: ${count})`);
+    return { data: data as SupabaseSong[], count: count ?? undefined };
+  } catch (err) {
+    console.error('Exception loading all songs (admin):', err);
+    return { error: err };
+  }
+}
+
+/**
  * Search public songs by title or artist
  */
 export async function searchPublicSongs(
@@ -611,6 +646,41 @@ export async function deleteCustomInstrument(
     return { success: true };
   } catch (err) {
     console.error('Exception deleting custom instrument:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Load all custom instruments (for moderators/admin)
+ * Note: This requires moderator privileges via RLS policies
+ */
+export async function loadAllInstrumentsAdmin(
+  options: { limit?: number; offset?: number; search?: string } = {}
+): Promise<{ data?: SupabaseCustomInstrument[]; error?: unknown; count?: number }> {
+  const { limit = 100, offset = 0, search = '' } = options;
+
+  try {
+    let queryBuilder = supabase
+      .from('custom_instruments')
+      .select('*', { count: 'exact' });
+
+    if (search.trim()) {
+      queryBuilder = queryBuilder.ilike('name', `%${search}%`);
+    }
+
+    const { data, error, count } = await queryBuilder
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('Error loading all instruments (admin):', error);
+      return { error };
+    }
+
+    console.log(`[Admin] Loaded ${data?.length || 0} instruments (total: ${count})`);
+    return { data: data as SupabaseCustomInstrument[], count: count ?? undefined };
+  } catch (err) {
+    console.error('Exception loading all instruments (admin):', err);
     return { error: err };
   }
 }
