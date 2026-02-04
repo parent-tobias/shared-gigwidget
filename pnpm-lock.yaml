@@ -53,6 +53,9 @@ importers:
       html5-qrcode:
         specifier: ^2.3.0
         version: 2.3.8
+      svguitar:
+        specifier: ^2.5.0
+        version: 2.5.0
       y-indexeddb:
         specifier: ^9.0.0
         version: 9.0.12(yjs@13.6.29)
