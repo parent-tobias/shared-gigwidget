@@ -275,13 +275,9 @@
     };
   }
 
-  // Re-render diagrams when SVGuitar becomes ready
-  $effect(() => {
-    if (svguitarReady && chordVariations.length > 0) {
-      // Force a re-render by touching variations
-      chordVariations = [...chordVariations];
-    }
-  });
+  // Create a render key that changes when SVGuitar becomes ready
+  // This forces Svelte to re-create the diagram elements
+  let renderKey = $derived(svguitarReady ? 'ready' : 'loading');
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
