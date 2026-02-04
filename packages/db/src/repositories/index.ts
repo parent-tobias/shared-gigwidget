@@ -376,6 +376,13 @@ export const LocalFingeringRepository = {
       .toArray();
   },
 
+  async getByUserAndChord(userId: string, chordName: string, instrumentId: string): Promise<LocalFingering[]> {
+    return getDatabase().localFingerings
+      .where('[userId+chordName+instrumentId]')
+      .equals([userId, chordName, instrumentId])
+      .toArray();
+  },
+
   async getDefault(userId: string, chordName: string, instrumentId: string): Promise<LocalFingering | undefined> {
     return getDatabase().localFingerings
       .where('[userId+chordName+instrumentId]')
