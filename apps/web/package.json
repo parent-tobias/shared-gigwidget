@@ -16,7 +16,7 @@
     "@gigwidget/db": "workspace:*",
     "@gigwidget/sync": "workspace:*",
     "@gigwidget/ui": "workspace:*",
-    "@parent-tobias/chord-component": "^1.0.0",
+    "@parent-tobias/chord-component": "^1.1.0",
     "@parent-tobias/chordpro-editor": "latest",
     "@parent-tobias/chordpro-renderer": "latest",
     "@parent-tobias/filesystem-component": "latest",
