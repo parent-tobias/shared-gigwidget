@@ -442,6 +442,141 @@ export async function upsertProfile(
   }
 }
 
+// ============================================================================
+// User Management (Admin/Mod only)
+// ============================================================================
+
+/**
+ * Load all user profiles (for moderators/admin)
+ * Note: This requires moderator privileges via RLS policies
+ */
+export async function loadAllUsersAdmin(
+  options: { limit?: number; offset?: number; search?: string } = {}
+): Promise<{ data?: SupabaseProfile[]; error?: unknown; count?: number }> {
+  const { limit = 50, offset = 0, search = '' } = options;
+
+  try {
+    let queryBuilder = supabase
+      .from('profiles')
+      .select('*', { count: 'exact' });
+
+    if (search.trim()) {
+      queryBuilder = queryBuilder.ilike('display_name', `%${search}%`);
+    }
+
+    const { data, error, count } = await queryBuilder
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) {
+      console.error('Error loading all users (admin):', error);
+      return { error };
+    }
+
+    console.log(`[Admin] Loaded ${data?.length || 0} users (total: ${count})`);
+    return { data: data as SupabaseProfile[], count: count ?? undefined };
+  } catch (err) {
+    console.error('Exception loading all users (admin):', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Update a user's subscription tier (for moderators/admin)
+ * Note: This requires moderator privileges via RLS policies
+ */
+export async function updateUserTierAdmin(
+  userId: string,
+  tier: SupabaseProfile['subscription_tier']
+): Promise<{ success?: boolean; error?: unknown }> {
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ subscription_tier: tier, updated_at: new Date().toISOString() })
+      .eq('id', userId);
+
+    if (error) {
+      console.error('Error updating user tier:', error);
+      return { error };
+    }
+
+    console.log(`[Admin] Updated user ${userId} tier to ${tier}`);
+    return { success: true };
+  } catch (err) {
+    console.error('Exception updating user tier:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Delete a user account (for moderators/admin)
+ * This deletes the profile and all associated data (songs, collections, etc.)
+ * Note: This requires moderator privileges via RLS policies
+ */
+export async function deleteUserAdmin(
+  userId: string
+): Promise<{ success?: boolean; error?: unknown }> {
+  try {
+    // Delete user's songs first
+    const { error: songsError } = await supabase
+      .from('songs')
+      .delete()
+      .eq('user_id', userId);
+
+    if (songsError) {
+      console.error('Error deleting user songs:', songsError);
+      // Continue anyway - some tables might not have data
+    }
+
+    // Delete user's song sets/collections
+    const { error: setsError } = await supabase
+      .from('song_sets')
+      .delete()
+      .eq('user_id', userId);
+
+    if (setsError) {
+      console.error('Error deleting user song sets:', setsError);
+    }
+
+    // Delete user's custom instruments
+    const { error: instrumentsError } = await supabase
+      .from('custom_instruments')
+      .delete()
+      .eq('user_id', userId);
+
+    if (instrumentsError) {
+      console.error('Error deleting user instruments:', instrumentsError);
+    }
+
+    // Delete user's preferences
+    const { error: prefsError } = await supabase
+      .from('preferences')
+      .delete()
+      .eq('user_id', userId);
+
+    if (prefsError) {
+      console.error('Error deleting user preferences:', prefsError);
+    }
+
+    // Finally delete the profile
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', userId);
+
+    if (profileError) {
+      console.error('Error deleting user profile:', profileError);
+      return { error: profileError };
+    }
+
+    console.log(`[Admin] Deleted user ${userId} and all associated data`);
+    return { success: true };
+  } catch (err) {
+    console.error('Exception deleting user:', err);
+    return { error: err };
+  }
+}
+
 /**
  * Upload avatar to Supabase Storage
  */

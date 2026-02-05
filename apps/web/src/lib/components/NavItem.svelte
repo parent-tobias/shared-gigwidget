@@ -4,7 +4,7 @@
 
   interface Props {
     href: string;
-    icon?: 'globe' | 'music' | 'folder' | 'settings' | 'list' | 'user' | 'download' | 'users' | 'database' | 'grid' | 'guitar';
+    icon?: 'globe' | 'music' | 'folder' | 'settings' | 'list' | 'user' | 'download' | 'users' | 'database' | 'grid' | 'guitar' | 'shield';
     children: Snippet;
   }
 
@@ -90,6 +90,10 @@
           <path d="M10 5.5a3 3 0 0 0-3 3v1a2 2 0 0 0 2 2h1"/>
           <path d="M12 11.5v3"/>
           <path d="M8 17.5a4 4 0 0 0 8 0c0-2-2-3-4-3s-4 1-4 3z"/>
+        </svg>
+      {:else if icon === 'shield'}
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
       {/if}
     </span>

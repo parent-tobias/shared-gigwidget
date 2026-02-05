@@ -66,6 +66,7 @@
 
       <div class="nav-section">
         <span class="nav-section-label" class:hidden={collapsed}>Admin</span>
+        <NavItem href="/admin/users" icon="shield">Users</NavItem>
         <NavItem href="/admin/songs" icon="database">Songs</NavItem>
         <NavItem href="/admin/system-chords" icon="grid">Chords</NavItem>
         <NavItem href="/admin/instruments" icon="guitar">Instruments</NavItem>
