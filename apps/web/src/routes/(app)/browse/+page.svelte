@@ -584,12 +584,16 @@
         <ul class="item-list">
           {#each remoteSongs as song (song.id)}
             {@const isInLibrary = savedSourceIds.has(song.id)}
+            {@const isForked = song.source_id !== null}
             <li class="item" class:in-library={isInLibrary}>
               <div class="item-main">
                 <div class="item-info">
                   <span class="item-title">{song.title}</span>
                   {#if song.artist}
                     <span class="item-subtitle">{song.artist}</span>
+                  {/if}
+                  {#if isForked && song.owner_display_name}
+                    <span class="item-attribution">edit by {song.owner_display_name}</span>
                   {/if}
                 </div>
                 <div class="item-meta">
@@ -951,6 +955,12 @@
   .item-subtitle {
     font-size: 0.875rem;
     color: var(--color-text-muted);
+  }
+
+  .item-attribution {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    font-style: italic;
   }
 
   .item-meta {

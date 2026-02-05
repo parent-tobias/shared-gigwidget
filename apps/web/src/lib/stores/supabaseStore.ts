@@ -66,6 +66,8 @@ export interface SupabaseSong {
   type: SongType;
   source_id: string | null;
   forked_from_id: string | null;
+  // Owner info (populated from join with profiles)
+  owner_display_name?: string;
 }
 
 /**
@@ -257,9 +259,10 @@ export async function searchPublicSongs(
 
   try {
     // Build query with OR filter for title and artist
+    // Join with profiles to get owner display_name for attribution
     let queryBuilder = supabase
       .from('songs')
-      .select('*', { count: 'exact' })
+      .select('*, profiles:user_id(display_name)', { count: 'exact' })
       .eq('visibility', 'public');
 
     if (query.trim()) {
@@ -276,7 +279,14 @@ export async function searchPublicSongs(
       return { error };
     }
 
-    return { data: data as SupabaseSong[], count: count ?? undefined };
+    // Transform the joined data to flatten owner_display_name
+    const songs: SupabaseSong[] = (data ?? []).map((row: any) => ({
+      ...row,
+      owner_display_name: row.profiles?.display_name ?? undefined,
+      profiles: undefined, // Remove the nested object
+    }));
+
+    return { data: songs, count: count ?? undefined };
   } catch (err) {
     console.error('Exception searching public songs:', err);
     return { error: err };
