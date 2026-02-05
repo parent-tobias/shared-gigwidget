@@ -1,6 +1,6 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js';
 import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/public';
-import type { Song, Visibility } from '@gigwidget/core';
+import type { Song, SongType, Visibility } from '@gigwidget/core';
 
 // ============================================================================
 // Supabase Client Setup
@@ -62,6 +62,10 @@ export interface SupabaseSong {
   content: string | null;
   created_at: string;
   updated_at: string;
+  // Song lineage fields (added in schema v4)
+  type: SongType;
+  source_id: string | null;
+  forked_from_id: string | null;
 }
 
 /**
@@ -80,6 +84,10 @@ function toSupabaseSong(userId: string, song: Song, content?: string): Partial<S
     visibility: song.visibility,
     content: content ?? null,
     updated_at: new Date().toISOString(),
+    // Song lineage fields
+    type: song.type ?? 'original',
+    source_id: song.sourceId ?? null,
+    forked_from_id: song.forkedFromId ?? null,
   };
 }
 
@@ -99,6 +107,10 @@ export function fromSupabaseSong(row: SupabaseSong): Partial<Song> {
     visibility: row.visibility,
     updatedAt: new Date(row.updated_at),
     createdAt: new Date(row.created_at),
+    // Song lineage fields
+    type: row.type ?? 'original',
+    sourceId: row.source_id ?? undefined,
+    forkedFromId: row.forked_from_id ?? undefined,
   };
 }
 
@@ -1181,6 +1193,173 @@ export async function deleteSystemChord(
     return { success: true };
   } catch (err) {
     console.error('Exception deleting system chord:', err);
+    return { error: err };
+  }
+}
+
+// ============================================================================
+// Saved Songs (Song Lineage Tracking)
+// ============================================================================
+
+/**
+ * Saved song reference - tracks relationship between original public songs
+ * and user's saved copies. Enables "View Original" and prevents duplicate saves.
+ */
+export interface SupabaseSavedSong {
+  id: string;
+  user_id: string;
+  source_id: string;
+  saved_song_id: string;
+  saved_at: string;
+}
+
+/**
+ * Load all saved song references for a user
+ */
+export async function loadSavedSongReferences(
+  userId: string
+): Promise<{ data?: SupabaseSavedSong[]; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('saved_songs')
+      .select('*')
+      .eq('user_id', userId)
+      .order('saved_at', { ascending: false });
+
+    if (error) {
+      console.error('Error loading saved song references:', error);
+      return { error };
+    }
+
+    console.log(`Loaded ${data?.length || 0} saved song references`);
+    return { data: data as SupabaseSavedSong[] };
+  } catch (err) {
+    console.error('Exception loading saved song references:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Get a saved song reference by user and source (original song ID)
+ * Used to check if a user has already saved a specific public song
+ */
+export async function getSavedSongBySource(
+  userId: string,
+  sourceId: string
+): Promise<{ data?: SupabaseSavedSong; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('saved_songs')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('source_id', sourceId)
+      .single();
+
+    if (error) {
+      // Not found is not an error for our purposes
+      if (error.code === 'PGRST116') {
+        return { data: undefined };
+      }
+      console.error('Error getting saved song reference:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseSavedSong };
+  } catch (err) {
+    console.error('Exception getting saved song reference:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Create a saved song reference
+ * Called when a user saves a public song to their library
+ */
+export async function saveSavedSongReference(
+  userId: string,
+  sourceId: string,
+  savedSongId: string
+): Promise<{ data?: SupabaseSavedSong; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('saved_songs')
+      .insert({
+        user_id: userId,
+        source_id: sourceId,
+        saved_song_id: savedSongId,
+        saved_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error saving saved song reference:', error);
+      return { error };
+    }
+
+    console.log(`Created saved song reference: ${sourceId} -> ${savedSongId}`);
+    return { data: data as SupabaseSavedSong };
+  } catch (err) {
+    console.error('Exception saving saved song reference:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Delete a saved song reference
+ * Called when a user removes a saved song from their library
+ */
+export async function deleteSavedSongReference(
+  userId: string,
+  sourceId: string
+): Promise<{ success?: boolean; error?: unknown }> {
+  try {
+    const { error } = await supabase
+      .from('saved_songs')
+      .delete()
+      .eq('user_id', userId)
+      .eq('source_id', sourceId);
+
+    if (error) {
+      console.error('Error deleting saved song reference:', error);
+      return { error };
+    }
+
+    console.log(`Deleted saved song reference for source: ${sourceId}`);
+    return { success: true };
+  } catch (err) {
+    console.error('Exception deleting saved song reference:', err);
+    return { error: err };
+  }
+}
+
+/**
+ * Get a public song by ID (for "View Original" feature)
+ * Returns the original song if it still exists and is public
+ */
+export async function getPublicSongById(
+  songId: string
+): Promise<{ data?: SupabaseSong; error?: unknown }> {
+  try {
+    const { data, error } = await supabase
+      .from('songs')
+      .select('*')
+      .eq('id', songId)
+      .eq('visibility', 'public')
+      .single();
+
+    if (error) {
+      // Not found is not an error - original may have been deleted
+      if (error.code === 'PGRST116') {
+        return { data: undefined };
+      }
+      console.error('Error getting public song by ID:', error);
+      return { error };
+    }
+
+    return { data: data as SupabaseSong };
+  } catch (err) {
+    console.error('Exception getting public song by ID:', err);
     return { error: err };
   }
 }

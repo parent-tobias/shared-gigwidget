@@ -1,15 +1,18 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
-  import type { Song, SongSet } from '@gigwidget/core';
+  import type { Song, SongSet, SavedSong } from '@gigwidget/core';
   import {
     searchPublicSongs,
     searchPublicSongSets,
     getPublicSongSet,
     fromSupabaseSong,
+    saveSongToSupabase,
+    saveSavedSongReference,
     type SupabaseSong,
     type SupabaseSongSet,
   } from '$lib/stores/supabaseStore';
+  import { toast } from '$lib/stores/toastStore.svelte';
 
   // Tab state
   type Tab = 'songs' | 'collections';
@@ -18,7 +21,10 @@
   // Songs state
   let searchQuery = $state('');
   let remoteSongs = $state<SupabaseSong[]>([]);
-  let localSongIds = $state<Set<string>>(new Set());
+  // Track which source (original) song IDs we've saved - NOT the local song IDs
+  let savedSourceIds = $state<Set<string>>(new Set());
+  // Map from sourceId to local savedSongId for navigation
+  let sourceToLocalMap = $state<Map<string, string>>(new Map());
   let loading = $state(true);
   let searching = $state(false);
   let error = $state<string | null>(null);
@@ -86,17 +92,35 @@
 
   async function loadInitialData() {
     try {
-      // Load local song IDs to know which are already in library
-      const { getDatabase } = await import('@gigwidget/db');
+      const { getDatabase, SavedSongRepository, SongSetRepository } = await import('@gigwidget/db');
       const db = getDatabase();
-      const localSongs = await db.songs.toArray();
-      localSongIds = new Set(localSongs.map((s) => s.id));
 
-      // Load local collection IDs
-      const { SongSetRepository } = await import('@gigwidget/db');
+      // Get local user
       const users = await db.users.toArray();
-      if (users.length > 0) {
-        const localSets = await SongSetRepository.getByUser(users[0].id);
+      const user = users[0];
+
+      if (user) {
+        // Load saved song references to know which public songs are in library
+        // This uses the new lineage system - we track sourceIds not local song IDs
+        const savedSongs = await SavedSongRepository.getByUser(user.id);
+        savedSourceIds = new Set(savedSongs.map((s) => s.sourceId));
+        sourceToLocalMap = new Map(savedSongs.map((s) => [s.sourceId, s.savedSongId]));
+
+        // Also check for any songs that were saved before the lineage system
+        // (they have sourceId set directly on the song)
+        const songsWithSource = await db.songs
+          .where({ ownerId: user.id })
+          .filter((s) => s.sourceId !== undefined)
+          .toArray();
+        for (const song of songsWithSource) {
+          if (song.sourceId && !savedSourceIds.has(song.sourceId)) {
+            savedSourceIds = new Set([...savedSourceIds, song.sourceId]);
+            sourceToLocalMap = new Map([...sourceToLocalMap, [song.sourceId, song.id]]);
+          }
+        }
+
+        // Load local collection IDs
+        const localSets = await SongSetRepository.getByUser(user.id);
         localCollectionIds = new Set(localSets.map((s) => s.id));
       }
 
@@ -228,8 +252,8 @@
     addingSongId = remoteSong.id;
 
     try {
-      const { getDatabase } = await import('@gigwidget/db');
-      const { generateId } = await import('@gigwidget/core');
+      const { getDatabase, SavedSongRepository } = await import('@gigwidget/db');
+      const { createSavedSong, createSavedSongReference, createArrangement } = await import('@gigwidget/core');
       const db = getDatabase();
 
       // Get local user
@@ -240,42 +264,86 @@
         return;
       }
 
-      // Create local song from remote data
-      const songData = fromSupabaseSong(remoteSong);
-      const newSong: Song = {
-        id: remoteSong.id, // Keep same ID for sync
-        ownerId: user.id,
-        title: remoteSong.title,
-        artist: remoteSong.artist ?? undefined,
-        key: songData.key,
-        tempo: songData.tempo,
-        timeSignature: songData.timeSignature,
-        tags: [...(remoteSong.tags ?? []), 'downloaded'],
-        visibility: 'private', // Downloaded songs are private by default
-        spaceIds: [],
-        createdAt: new Date(remoteSong.created_at),
-        updatedAt: new Date(),
-        yjsDocId: generateId(),
-      };
+      // Check if already saved (by source ID, not local ID)
+      const existingSave = await SavedSongRepository.getByUserAndSource(user.id, remoteSong.id);
+      if (existingSave) {
+        toast.info('Song is already in your library');
+        return;
+      }
+
+      // Create NEW local song with type='saved' and sourceId pointing to original
+      // This generates a NEW unique ID - we don't reuse the remote song's ID
+      const newSong = createSavedSong(
+        {
+          id: remoteSong.id,
+          title: remoteSong.title,
+          artist: remoteSong.artist ?? undefined,
+          key: remoteSong.key as Song['key'],
+          tempo: remoteSong.tempo ?? undefined,
+          timeSignature: remoteSong.time_signature ?? undefined,
+          tags: remoteSong.tags ?? [],
+        },
+        user.id
+      );
 
       // Create arrangement with content if available
-      const { createArrangement } = await import('@gigwidget/core');
       const contentLength = remoteSong.content?.length ?? 0;
-      console.log(`[Browse] Adding song "${remoteSong.title}" with content length: ${contentLength}`);
+      console.log(`[Browse] Saving song "${remoteSong.title}" as NEW id: ${newSong.id} (source: ${remoteSong.id}), content: ${contentLength} chars`);
 
       const arrangement = createArrangement(newSong.id, 'guitar', {
         content: remoteSong.content ?? '',
       });
 
+      // Create saved song reference for tracking lineage
+      const savedSongRef: SavedSong = createSavedSongReference(
+        user.id,
+        remoteSong.id,  // sourceId - the original public song
+        newSong.id      // savedSongId - our new local copy
+      );
+
+      // Save locally
       await db.songs.add(newSong);
       await db.arrangements.add(arrangement);
-      console.log(`[Browse] Successfully added song and arrangement`);
+      await SavedSongRepository.create(savedSongRef);
+
+      console.log(`[Browse] Successfully saved song with lineage tracking`);
+
+      // Sync to cloud if user is logged in
+      if (user.supabaseId) {
+        try {
+          // Save the song to Supabase
+          const { error: songError } = await saveSongToSupabase(
+            user.supabaseId,
+            newSong,
+            remoteSong.content ?? ''
+          );
+          if (songError) {
+            console.warn('[Browse] Failed to sync saved song to cloud:', songError);
+          }
+
+          // Save the reference to Supabase
+          const { error: refError } = await saveSavedSongReference(
+            user.supabaseId,
+            remoteSong.id,
+            newSong.id
+          );
+          if (refError) {
+            console.warn('[Browse] Failed to sync saved song reference to cloud:', refError);
+          }
+        } catch (syncErr) {
+          console.warn('[Browse] Cloud sync failed, song saved locally:', syncErr);
+        }
+      }
 
       // Update local tracking
-      localSongIds = new Set([...localSongIds, remoteSong.id]);
+      savedSourceIds = new Set([...savedSourceIds, remoteSong.id]);
+      sourceToLocalMap = new Map([...sourceToLocalMap, [remoteSong.id, newSong.id]]);
+
+      toast.success(`"${newSong.title}" added to library`);
     } catch (err) {
       console.error('Failed to add to library:', err);
       error = 'Failed to add song to library';
+      toast.error('Failed to add song to library');
     } finally {
       addingSongId = null;
     }
@@ -285,8 +353,8 @@
     addingCollectionId = remoteCollection.id;
 
     try {
-      const { getDatabase, SongSetRepository } = await import('@gigwidget/db');
-      const { generateId, createArrangement } = await import('@gigwidget/core');
+      const { getDatabase, SongSetRepository, SavedSongRepository } = await import('@gigwidget/db');
+      const { generateId, createSavedSong, createSavedSongReference, createArrangement } = await import('@gigwidget/core');
       const db = getDatabase();
 
       // Get local user
@@ -304,72 +372,115 @@
         return;
       }
 
-      console.log(`[Browse] Adding collection "${remoteCollection.name}" with ${fullCollection.songs.length} songs`);
+      console.log(`[Browse] Saving collection "${remoteCollection.name}" with ${fullCollection.songs.length} songs`);
 
-      // Add all songs first
-      const addedSongIds: string[] = [];
+      // Add all songs first, tracking the NEW local IDs for the collection
+      const localSongIds: string[] = [];
+      let songsAdded = 0;
+      let songsSkipped = 0;
+
       for (const remoteSong of fullCollection.songs) {
-        // Skip if already in library
-        if (localSongIds.has(remoteSong.id)) {
-          addedSongIds.push(remoteSong.id);
+        // Check if already saved by source ID
+        const existingSave = await SavedSongRepository.getByUserAndSource(user.id, remoteSong.id);
+        if (existingSave) {
+          // Already saved - use the existing local song ID
+          localSongIds.push(existingSave.savedSongId);
+          songsSkipped++;
           continue;
         }
 
-        const songData = fromSupabaseSong(remoteSong);
-        const newSong: Song = {
-          id: remoteSong.id,
-          ownerId: user.id,
-          title: remoteSong.title,
-          artist: remoteSong.artist ?? undefined,
-          key: songData.key,
-          tempo: songData.tempo,
-          timeSignature: songData.timeSignature,
-          tags: [...(remoteSong.tags ?? []), 'downloaded'],
-          visibility: 'private',
-          spaceIds: [],
-          createdAt: new Date(remoteSong.created_at),
-          updatedAt: new Date(),
-          yjsDocId: generateId(),
-        };
+        // Also check if in sourceToLocalMap (from initial load)
+        if (sourceToLocalMap.has(remoteSong.id)) {
+          localSongIds.push(sourceToLocalMap.get(remoteSong.id)!);
+          songsSkipped++;
+          continue;
+        }
+
+        // Create NEW local song with type='saved' and lineage tracking
+        const newSong = createSavedSong(
+          {
+            id: remoteSong.id,
+            title: remoteSong.title,
+            artist: remoteSong.artist ?? undefined,
+            key: remoteSong.key as Song['key'],
+            tempo: remoteSong.tempo ?? undefined,
+            timeSignature: remoteSong.time_signature ?? undefined,
+            tags: remoteSong.tags ?? [],
+          },
+          user.id
+        );
 
         const arrangement = createArrangement(newSong.id, 'guitar', {
           content: remoteSong.content ?? '',
         });
 
+        // Create saved song reference
+        const savedSongRef: SavedSong = createSavedSongReference(
+          user.id,
+          remoteSong.id,
+          newSong.id
+        );
+
         await db.songs.put(newSong);
         await db.arrangements.put(arrangement);
-        addedSongIds.push(remoteSong.id);
-        localSongIds = new Set([...localSongIds, remoteSong.id]);
+        await SavedSongRepository.create(savedSongRef);
+
+        localSongIds.push(newSong.id);
+        savedSourceIds = new Set([...savedSourceIds, remoteSong.id]);
+        sourceToLocalMap = new Map([...sourceToLocalMap, [remoteSong.id, newSong.id]]);
+        songsAdded++;
+
+        // Sync to cloud if logged in
+        if (user.supabaseId) {
+          try {
+            await saveSongToSupabase(user.supabaseId, newSong, remoteSong.content ?? '');
+            await saveSavedSongReference(user.supabaseId, remoteSong.id, newSong.id);
+          } catch (syncErr) {
+            console.warn('[Browse] Failed to sync song to cloud:', syncErr);
+          }
+        }
       }
 
-      // Create local collection
+      // Create local collection with NEW unique ID and the LOCAL song IDs
+      const newCollectionId = generateId();
       const newCollection: SongSet = {
-        id: remoteCollection.id,
+        id: newCollectionId,
         userId: user.id,
         name: remoteCollection.name,
         description: remoteCollection.description ?? undefined,
-        songIds: addedSongIds,
+        songIds: localSongIds, // Use LOCAL song IDs, not remote IDs
         isSetlist: remoteCollection.is_setlist,
-        visibility: 'private', // Downloaded collections are private
-        createdAt: new Date(remoteCollection.created_at),
+        visibility: 'private',
+        createdAt: new Date(),
         updatedAt: new Date(),
       };
 
       await SongSetRepository.create(newCollection);
-      console.log(`[Browse] Successfully added collection with ${addedSongIds.length} songs`);
+      console.log(`[Browse] Successfully saved collection: ${songsAdded} songs added, ${songsSkipped} already in library`);
 
       // Update local tracking
-      localCollectionIds = new Set([...localCollectionIds, remoteCollection.id]);
+      localCollectionIds = new Set([...localCollectionIds, newCollectionId]);
+
+      toast.success(`"${newCollection.name}" added with ${localSongIds.length} songs`);
     } catch (err) {
       console.error('Failed to add collection to library:', err);
       error = 'Failed to add collection to library';
+      toast.error('Failed to add collection to library');
     } finally {
       addingCollectionId = null;
     }
   }
 
-  function viewSong(songId: string) {
-    goto(`/library/${songId}`);
+  function viewSong(sourceId: string) {
+    // Navigate to the LOCAL song ID, not the source ID
+    const localId = sourceToLocalMap.get(sourceId);
+    if (localId) {
+      goto(`/library/${localId}`);
+    } else {
+      // Fallback - shouldn't happen if data is consistent
+      console.warn(`[Browse] No local ID found for source ${sourceId}`);
+      toast.error('Could not find song in library');
+    }
   }
 
   function viewCollection(collectionId: string) {
@@ -472,7 +583,7 @@
 
         <ul class="item-list">
           {#each remoteSongs as song (song.id)}
-            {@const isInLibrary = localSongIds.has(song.id)}
+            {@const isInLibrary = savedSourceIds.has(song.id)}
             <li class="item" class:in-library={isInLibrary}>
               <div class="item-main">
                 <div class="item-info">

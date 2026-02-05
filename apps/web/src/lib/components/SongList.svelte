@@ -331,7 +331,14 @@
               </div>
             {/if}
             <div class="cell title-cell">
-              <span class="song-title">{song.title}</span>
+              <div class="title-row">
+                <span class="song-title">{song.title}</span>
+                {#if song.type === 'saved'}
+                  <span class="type-badge saved" title="Saved from Browse">Saved</span>
+                {:else if song.type === 'forked'}
+                  <span class="type-badge forked" title="Forked (edited copy)">Forked</span>
+                {/if}
+              </div>
               {#if song.tags && song.tags.length > 0}
                 <div class="tags">
                   {#each song.tags.slice(0, 2) as tag}
@@ -610,11 +617,39 @@
     font-size: 0.8125rem;
   }
 
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    min-width: 0;
+  }
+
   .song-title {
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Song type badges for lineage tracking */
+  .type-badge {
+    font-size: 0.625rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+  }
+
+  .type-badge.saved {
+    background-color: rgba(33, 150, 243, 0.15);
+    color: #2196f3;
+  }
+
+  .type-badge.forked {
+    background-color: rgba(156, 39, 176, 0.15);
+    color: #9c27b0;
   }
 
   .tags {

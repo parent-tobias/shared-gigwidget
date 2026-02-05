@@ -6,6 +6,7 @@
 
 import type {
   Song,
+  SongType,
   Arrangement,
   Snapshot,
   Space,
@@ -19,6 +20,7 @@ import type {
   SongMetadata,
   SongSet,
   SongChordOverride,
+  SavedSong,
 } from '@gigwidget/core';
 import { getDatabase } from '../schema.js';
 
@@ -86,6 +88,30 @@ export const SongRepository = {
         spaceIds: song.spaceIds.filter((id: string) => id !== spaceId),
       });
     }
+  },
+
+  /**
+   * Get all songs that were saved from a specific source (original public song).
+   */
+  async getBySourceId(sourceId: string): Promise<Song[]> {
+    return getDatabase().songs.where({ sourceId }).toArray();
+  },
+
+  /**
+   * Get all songs of a specific type (original, saved, forked).
+   */
+  async getByType(type: SongType): Promise<Song[]> {
+    return getDatabase().songs.where({ type }).toArray();
+  },
+
+  /**
+   * Get all saved/forked songs for a user (songs that have a sourceId).
+   */
+  async getSavedSongsByOwner(ownerId: string): Promise<Song[]> {
+    return getDatabase().songs
+      .where({ ownerId })
+      .filter((song: Song) => song.type === 'saved' || song.type === 'forked')
+      .toArray();
   },
 };
 
@@ -612,5 +638,102 @@ export const SongChordOverrideRepository = {
       .where({ userId })
       .filter((o: SongChordOverride) => o.songId === songId)
       .delete();
+  },
+};
+
+// ============================================================================
+// Saved Song Repository
+// ============================================================================
+
+/**
+ * Repository for tracking saved song references.
+ * This tracks the relationship between original public songs and user's saved copies.
+ * Used for:
+ * - "View Original" feature
+ * - Preventing duplicate saves
+ * - Tracking song lineage
+ */
+export const SavedSongRepository = {
+  async getById(id: string): Promise<SavedSong | undefined> {
+    return getDatabase().savedSongs.get(id);
+  },
+
+  /**
+   * Get all saved song references for a user.
+   */
+  async getByUser(userId: string): Promise<SavedSong[]> {
+    return getDatabase().savedSongs.where({ userId }).toArray();
+  },
+
+  /**
+   * Get saved song reference by user and source (original song ID).
+   * Used to check if a user has already saved a specific public song.
+   */
+  async getByUserAndSource(userId: string, sourceId: string): Promise<SavedSong | undefined> {
+    return getDatabase().savedSongs
+      .where('[userId+sourceId]')
+      .equals([userId, sourceId])
+      .first();
+  },
+
+  /**
+   * Get saved song reference by the saved song's ID.
+   */
+  async getBySavedSongId(savedSongId: string): Promise<SavedSong | undefined> {
+    return getDatabase().savedSongs
+      .where({ savedSongId })
+      .first();
+  },
+
+  /**
+   * Get all saved song references for a specific source (original song).
+   * Useful for analytics or checking how many users saved a song.
+   */
+  async getBySource(sourceId: string): Promise<SavedSong[]> {
+    return getDatabase().savedSongs.where({ sourceId }).toArray();
+  },
+
+  /**
+   * Create a new saved song reference.
+   */
+  async create(savedSong: SavedSong): Promise<string> {
+    return getDatabase().savedSongs.add(savedSong);
+  },
+
+  /**
+   * Delete a saved song reference by ID.
+   */
+  async delete(id: string): Promise<void> {
+    await getDatabase().savedSongs.delete(id);
+  },
+
+  /**
+   * Delete a saved song reference by user and source.
+   * Used when a user removes a saved song from their library.
+   */
+  async deleteByUserAndSource(userId: string, sourceId: string): Promise<void> {
+    const savedSong = await this.getByUserAndSource(userId, sourceId);
+    if (savedSong) {
+      await getDatabase().savedSongs.delete(savedSong.id);
+    }
+  },
+
+  /**
+   * Delete a saved song reference by the saved song's ID.
+   * Used when the local copy is deleted.
+   */
+  async deleteBySavedSongId(savedSongId: string): Promise<void> {
+    const savedSong = await this.getBySavedSongId(savedSongId);
+    if (savedSong) {
+      await getDatabase().savedSongs.delete(savedSong.id);
+    }
+  },
+
+  /**
+   * Check if a user has already saved a specific source song.
+   */
+  async hasSaved(userId: string, sourceId: string): Promise<boolean> {
+    const savedSong = await this.getByUserAndSource(userId, sourceId);
+    return savedSong !== undefined;
   },
 };

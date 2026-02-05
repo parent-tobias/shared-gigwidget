@@ -5,7 +5,7 @@
 
 import { browser } from '$app/environment';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import type { Song, CustomInstrument, SongSet } from '@gigwidget/core';
+import type { Song, CustomInstrument, SongSet, SavedSong } from '@gigwidget/core';
 import {
   supabase,
   saveSongToSupabase,
@@ -24,12 +24,16 @@ import {
   loadSongSetsFromSupabase,
   saveSongSetToSupabase,
   deleteSongSetFromSupabase,
+  loadSavedSongReferences,
+  saveSavedSongReference,
+  deleteSavedSongReference,
   type SupabaseSong,
   type SongChangePayload,
   type SupabaseProfile,
   type SupabasePreferences,
   type SupabaseCustomInstrument,
   type SupabaseSongSet,
+  type SupabaseSavedSong,
 } from './supabaseStore';
 import { getSupabaseUserId, isAuthenticated } from './authStore.svelte';
 
@@ -187,6 +191,15 @@ async function performInitialSync(userId: string): Promise<void> {
       console.log('[Sync] Song sets sync done');
     } catch (err) {
       console.error('[Sync] Song sets sync failed (continuing):', err);
+    }
+
+    // Sync saved song references (non-blocking)
+    console.log('[Sync] Syncing saved song references...');
+    try {
+      await syncSavedSongsFromCloud(db, userId, localUser.id);
+      console.log('[Sync] Saved song references sync done');
+    } catch (err) {
+      console.error('[Sync] Saved song references sync failed (continuing):', err);
     }
 
     // Load songs from Supabase
@@ -651,6 +664,61 @@ async function syncSongSetsFromCloud(
   console.log('[Sync] Song sets sync complete');
 }
 
+/**
+ * Sync saved song references from cloud to local.
+ * These track which public songs users have saved to their library.
+ */
+async function syncSavedSongsFromCloud(
+  db: Awaited<ReturnType<typeof import('@gigwidget/db').getDatabase>>,
+  supabaseUserId: string,
+  localUserId: string
+): Promise<void> {
+  console.log('[Sync] Starting saved song references sync...');
+
+  const { data: cloudSavedSongs, error } = await loadSavedSongReferences(supabaseUserId);
+  if (error) {
+    console.error('[Sync] Failed to get cloud saved song references:', error);
+    throw error;
+  }
+
+  // Get local saved song references
+  const { SavedSongRepository } = await import('@gigwidget/db');
+  const localSavedSongs = await SavedSongRepository.getByUser(localUserId);
+
+  // Create maps for comparison
+  const cloudMap = new Map<string, SupabaseSavedSong>();
+  cloudSavedSongs?.forEach(s => cloudMap.set(`${s.source_id}:${s.saved_song_id}`, s));
+
+  const localMap = new Map<string, SavedSong>();
+  localSavedSongs.forEach(s => localMap.set(`${s.sourceId}:${s.savedSongId}`, s));
+
+  // Pull cloud-only references to local
+  for (const cloudRef of cloudSavedSongs ?? []) {
+    const key = `${cloudRef.source_id}:${cloudRef.saved_song_id}`;
+    if (!localMap.has(key)) {
+      console.log(`[Sync] Pulling saved song reference: ${cloudRef.source_id} -> ${cloudRef.saved_song_id}`);
+      await SavedSongRepository.create({
+        id: cloudRef.id,
+        userId: localUserId,
+        sourceId: cloudRef.source_id,
+        savedSongId: cloudRef.saved_song_id,
+        savedAt: new Date(cloudRef.saved_at),
+      });
+    }
+  }
+
+  // Push local-only references to cloud
+  for (const localRef of localSavedSongs) {
+    const key = `${localRef.sourceId}:${localRef.savedSongId}`;
+    if (!cloudMap.has(key)) {
+      console.log(`[Sync] Pushing saved song reference: ${localRef.sourceId} -> ${localRef.savedSongId}`);
+      await saveSavedSongReference(supabaseUserId, localRef.sourceId, localRef.savedSongId);
+    }
+  }
+
+  console.log('[Sync] Saved song references sync complete');
+}
+
 // ============================================================================
 // Real-time Subscription
 // ============================================================================
@@ -725,6 +793,10 @@ async function pullSongToLocal(
     createdAt: new Date(cloudSong.created_at),
     updatedAt: new Date(cloudSong.updated_at),
     yjsDocId: existingSong?.yjsDocId ?? generateId(), // Keep existing or generate new
+    // Song lineage fields
+    type: cloudSong.type ?? 'original',
+    sourceId: cloudSong.source_id ?? undefined,
+    forkedFromId: cloudSong.forked_from_id ?? undefined,
   };
   await db.songs.put(newSong);
 

@@ -74,6 +74,14 @@ export interface UserPreferences {
 // Song Domain
 // ============================================================================
 
+/**
+ * Song type classification:
+ * - 'original': Created by the user
+ * - 'saved': Saved from Browse (copy of a public song)
+ * - 'forked': Was saved, then edited (diverged from original)
+ */
+export type SongType = 'original' | 'saved' | 'forked';
+
 export interface Song {
   id: string;
   ownerId: string;
@@ -88,6 +96,23 @@ export interface Song {
   createdAt: Date;
   updatedAt: Date;
   yjsDocId: string;
+
+  // Song lineage tracking
+  type: SongType;              // 'original' | 'saved' | 'forked'
+  sourceId?: string;           // ID of the original public song (for saved/forked)
+  forkedFromId?: string;       // ID of the saved song before forking (for lineage)
+}
+
+/**
+ * Tracks the relationship between public songs and user's saved copies.
+ * This enables "View Original" and prevents duplicate saves.
+ */
+export interface SavedSong {
+  id: string;
+  userId: string;           // User who saved the song
+  sourceId: string;         // Original public song ID
+  savedSongId: string;      // Local copy song ID
+  savedAt: Date;
 }
 
 export interface Arrangement {

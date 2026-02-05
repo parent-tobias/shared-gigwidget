@@ -3,7 +3,9 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import type { Song, Arrangement, MusicalKey, Visibility, SongChordOverride } from '@gigwidget/core';
-  import { MUSICAL_KEYS, generateId } from '@gigwidget/core';
+  import { MUSICAL_KEYS, generateId, convertSavedToForked, canEditWithoutForking, hasViewableOriginal } from '@gigwidget/core';
+  import { toast } from '$lib/stores/toastStore.svelte';
+  import { getPublicSongById, saveSongToSupabase } from '$lib/stores/supabaseStore';
   import ChordSelectionModal from '$lib/components/ChordSelectionModal.svelte';
 
   let song = $state<Song | null>(null);
@@ -53,6 +55,15 @@
   let songChordOverrides = $state<SongChordOverride[]>([]);
   let currentUser = $state<any>(null);
   let showChordPalette = $state(false);
+
+  // Fork confirmation state (for saved songs that need forking before edit)
+  let showForkModal = $state(false);
+  let pendingForkEdit = $state(false); // If true, enter edit mode after fork confirmation
+
+  // View original state
+  let showViewOriginalModal = $state(false);
+  let originalSongData = $state<any>(null);
+  let loadingOriginal = $state(false);
 
   // Navigation context (for breadcrumbs)
   const fromContext = $derived($page.url.searchParams.get('from'));
@@ -437,7 +448,87 @@
     if (editMode && editorContent !== selectedArrangement?.content) {
       saveContent();
     }
+
+    // If entering edit mode and song is type='saved', show fork confirmation
+    if (!editMode && song && !canEditWithoutForking(song)) {
+      pendingForkEdit = true;
+      showForkModal = true;
+      return;
+    }
+
     editMode = !editMode;
+  }
+
+  async function confirmForkAndEdit() {
+    if (!song) return;
+
+    try {
+      // Convert the saved song to forked
+      const forkedSong = convertSavedToForked(song);
+
+      // Update in local database
+      const { SongRepository } = await import('@gigwidget/db');
+      await SongRepository.update(song.id, {
+        type: 'forked',
+        forkedFromId: forkedSong.forkedFromId,
+        updatedAt: forkedSong.updatedAt,
+      });
+
+      // Update local state
+      song = forkedSong;
+
+      // Sync to cloud if authenticated
+      const { syncSongToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongToCloud(forkedSong);
+
+      toast.success('Song forked - your changes will be saved to your copy');
+
+      // Close modal and enter edit mode if pending
+      showForkModal = false;
+      if (pendingForkEdit) {
+        pendingForkEdit = false;
+        editMode = true;
+      }
+    } catch (err) {
+      console.error('Failed to fork song:', err);
+      toast.error('Failed to fork song');
+    }
+  }
+
+  function cancelFork() {
+    showForkModal = false;
+    pendingForkEdit = false;
+  }
+
+  async function viewOriginal() {
+    if (!song?.sourceId) return;
+
+    loadingOriginal = true;
+    showViewOriginalModal = true;
+
+    try {
+      const { data, error } = await getPublicSongById(song.sourceId);
+
+      if (error) {
+        console.error('Failed to fetch original:', error);
+        originalSongData = null;
+      } else if (data) {
+        originalSongData = data;
+      } else {
+        // Original no longer available
+        originalSongData = null;
+      }
+    } catch (err) {
+      console.error('Exception fetching original:', err);
+      originalSongData = null;
+    } finally {
+      loadingOriginal = false;
+    }
+  }
+
+  function closeViewOriginal() {
+    showViewOriginalModal = false;
+    originalSongData = null;
   }
 
   function selectArrangement(arr: Arrangement) {
@@ -720,6 +811,11 @@
         </a>
         <div class="title-row">
           <h1>{song.title}</h1>
+          {#if song.type === 'saved'}
+            <span class="type-badge saved">Saved</span>
+          {:else if song.type === 'forked'}
+            <span class="type-badge forked">Forked</span>
+          {/if}
           {#if song.visibility === 'public'}
             <span class="visibility-badge public">Public</span>
           {:else}
@@ -732,6 +828,15 @@
       </div>
       <div class="header-actions">
         {#if !isSessionSong}
+          {#if hasViewableOriginal(song)}
+            <button class="btn btn-secondary btn-sm" onclick={viewOriginal} title="View Original">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                <polyline points="15 3 21 3 21 9"/>
+                <line x1="10" y1="14" x2="21" y2="3"/>
+              </svg>
+            </button>
+          {/if}
           <button class="btn btn-secondary btn-sm" onclick={openInfoModal}>ℹ️</button>
           <button class="btn btn-secondary" onclick={toggleEditMode}>
             {editMode ? 'View' : 'Edit'}
@@ -1123,6 +1228,78 @@
   />
 {/if}
 
+{#if showForkModal}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="modal-overlay" role="dialog" aria-modal="true" aria-label="Fork confirmation" tabindex="-1" onclick={cancelFork} onkeydown={(e) => e.key === 'Escape' && cancelFork()}>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="modal fork-modal" role="document" onclick={(e) => e.stopPropagation()}>
+      <h2>Fork this song?</h2>
+      <p class="fork-description">
+        This song was saved from the public library. To edit it, you'll create your own copy (fork).
+      </p>
+      <p class="fork-note">
+        Your changes will be saved to your forked copy. You can still view the original version.
+      </p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick={cancelFork}>
+          Cancel
+        </button>
+        <button type="button" class="btn btn-primary" onclick={confirmForkAndEdit}>
+          Fork & Edit
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showViewOriginalModal}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="modal-overlay" role="dialog" aria-modal="true" aria-label="View original" tabindex="-1" onclick={closeViewOriginal} onkeydown={(e) => e.key === 'Escape' && closeViewOriginal()}>
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div class="modal view-original-modal" role="document" onclick={(e) => e.stopPropagation()}>
+      <h2>Original Song</h2>
+
+      {#if loadingOriginal}
+        <div class="loading-original">
+          <p>Loading original...</p>
+        </div>
+      {:else if originalSongData}
+        <div class="original-song-info">
+          <h3>{originalSongData.title}</h3>
+          {#if originalSongData.artist}
+            <p class="original-artist">by {originalSongData.artist}</p>
+          {/if}
+          <div class="original-meta">
+            {#if originalSongData.key}
+              <span class="meta-badge">Key: {originalSongData.key}</span>
+            {/if}
+            {#if originalSongData.tempo}
+              <span class="meta-badge">{originalSongData.tempo} BPM</span>
+            {/if}
+          </div>
+          {#if originalSongData.content}
+            <div class="original-preview">
+              <h4>Preview</h4>
+              <pre class="content-preview">{originalSongData.content.slice(0, 500)}{originalSongData.content.length > 500 ? '...' : ''}</pre>
+            </div>
+          {/if}
+        </div>
+      {:else}
+        <div class="original-unavailable">
+          <p>The original song is no longer available.</p>
+          <p class="hint">It may have been made private or deleted by the author.</p>
+        </div>
+      {/if}
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick={closeViewOriginal}>
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .page-header {
     display: flex;
@@ -1170,6 +1347,30 @@
     background-color: rgba(148, 163, 184, 0.2);
     color: var(--color-text-muted);
     border: 1px solid var(--color-border);
+  }
+
+  /* Song type badges */
+  .type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .type-badge.saved {
+    background-color: rgba(33, 150, 243, 0.15);
+    color: #2196f3;
+    border: 1px solid rgba(33, 150, 243, 0.4);
+  }
+
+  .type-badge.forked {
+    background-color: rgba(156, 39, 176, 0.15);
+    color: #9c27b0;
+    border: 1px solid rgba(156, 39, 176, 0.4);
   }
 
   .back-link {
@@ -1571,6 +1772,97 @@
 
   .checkbox-label input {
     width: auto;
+  }
+
+  /* Fork modal styles */
+  .fork-modal {
+    max-width: 450px;
+  }
+
+  .fork-description {
+    color: var(--color-text);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .fork-note {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin-bottom: var(--spacing-lg);
+  }
+
+  /* View original modal styles */
+  .view-original-modal {
+    max-width: 500px;
+  }
+
+  .loading-original {
+    text-align: center;
+    padding: var(--spacing-lg);
+    color: var(--color-text-muted);
+  }
+
+  .original-song-info h3 {
+    margin: 0 0 var(--spacing-xs);
+    font-size: 1.25rem;
+  }
+
+  .original-artist {
+    color: var(--color-text-muted);
+    margin: 0 0 var(--spacing-md);
+  }
+
+  .original-meta {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+    flex-wrap: wrap;
+  }
+
+  .meta-badge {
+    background-color: var(--color-surface);
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .original-preview {
+    margin-top: var(--spacing-md);
+  }
+
+  .original-preview h4 {
+    margin: 0 0 var(--spacing-sm);
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .content-preview {
+    background-color: var(--color-bg-secondary);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    font-size: 0.8125rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .original-unavailable {
+    text-align: center;
+    padding: var(--spacing-lg);
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-md);
+  }
+
+  .original-unavailable p {
+    margin: 0;
+  }
+
+  .original-unavailable .hint {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin-top: var(--spacing-sm);
   }
 
   .modal-actions {

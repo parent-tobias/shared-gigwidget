@@ -5,6 +5,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import type {
   Song,
+  SongType,
+  SavedSong,
   Arrangement,
   Snapshot,
   User,
@@ -66,6 +68,10 @@ export function createSong(
     timeSignature?: [number, number];
     tags?: string[];
     visibility?: Visibility;
+    // Song lineage fields
+    type?: SongType;
+    sourceId?: string;
+    forkedFromId?: string;
   }
 ): Song {
   const id = generateId();
@@ -83,6 +89,10 @@ export function createSong(
     createdAt: new Date(),
     updatedAt: new Date(),
     yjsDocId: `song-${id}`,
+    // Song lineage - default to 'original' if not specified
+    type: options?.type ?? 'original',
+    sourceId: options?.sourceId,
+    forkedFromId: options?.forkedFromId,
   };
 }
 
@@ -108,6 +118,117 @@ export function createArrangement(
     createdAt: new Date(),
     updatedAt: new Date(),
   };
+}
+
+// ============================================================================
+// Song Lineage Service
+// ============================================================================
+
+/**
+ * Interface for creating a saved song from a remote/public song.
+ * The content is passed separately as it's not part of the Song model.
+ */
+export interface RemoteSongData {
+  id: string;
+  title: string;
+  artist?: string;
+  key?: Song['key'];
+  tempo?: number;
+  timeSignature?: [number, number];
+  tags?: string[];
+}
+
+/**
+ * Create a new saved song from a public/remote song.
+ * Generates a NEW unique ID and sets type to 'saved' with sourceId pointing to the original.
+ *
+ * @param remoteSong - The original public song data
+ * @param newOwnerId - The ID of the user saving the song
+ * @returns A new Song object with type='saved'
+ */
+export function createSavedSong(
+  remoteSong: RemoteSongData,
+  newOwnerId: string
+): Song {
+  return createSong(newOwnerId, remoteSong.title, {
+    artist: remoteSong.artist,
+    key: remoteSong.key,
+    tempo: remoteSong.tempo,
+    timeSignature: remoteSong.timeSignature,
+    tags: remoteSong.tags ? [...remoteSong.tags] : [],
+    visibility: 'private', // Saved songs are always private initially
+    type: 'saved',
+    sourceId: remoteSong.id, // Reference to original public song
+  });
+}
+
+/**
+ * Create a SavedSong reference object for tracking the relationship
+ * between a user's saved copy and the original public song.
+ *
+ * @param userId - User who saved the song
+ * @param sourceId - Original public song ID
+ * @param savedSongId - Local copy song ID
+ * @returns A new SavedSong reference object
+ */
+export function createSavedSongReference(
+  userId: string,
+  sourceId: string,
+  savedSongId: string
+): SavedSong {
+  return {
+    id: generateId(),
+    userId,
+    sourceId,
+    savedSongId,
+    savedAt: new Date(),
+  };
+}
+
+/**
+ * Convert a saved song to a forked song.
+ * Called when a user edits a saved song for the first time.
+ * The song keeps its ID and sourceId, but type changes to 'forked'.
+ *
+ * @param song - The saved song to convert
+ * @returns A new Song object with type='forked'
+ * @throws Error if the song is not of type 'saved'
+ */
+export function convertSavedToForked(song: Song): Song {
+  if (song.type !== 'saved') {
+    throw new Error(`Cannot convert song of type '${song.type}' to forked. Only 'saved' songs can be forked.`);
+  }
+
+  return {
+    ...song,
+    type: 'forked',
+    forkedFromId: song.id, // Self-reference marking the fork point
+    updatedAt: new Date(),
+  };
+}
+
+/**
+ * Check if a song can be edited without forking.
+ * Original songs can always be edited.
+ * Forked songs can always be edited.
+ * Saved songs require forking before editing.
+ *
+ * @param song - The song to check
+ * @returns true if the song can be edited directly, false if it needs to be forked first
+ */
+export function canEditWithoutForking(song: Song): boolean {
+  return song.type !== 'saved';
+}
+
+/**
+ * Check if a song has a viewable original.
+ * Saved and forked songs have a sourceId that can be used to view the original.
+ *
+ * @param song - The song to check
+ * @returns true if the song has a sourceId
+ */
+export function hasViewableOriginal(song: Song): boolean {
+  return song.sourceId !== undefined && song.sourceId !== null;
 }
 
 // ============================================================================

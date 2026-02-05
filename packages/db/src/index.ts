@@ -28,4 +28,5 @@ export {
   SongMetadataRepository,
   SongSetRepository,
   SongChordOverrideRepository,
+  SavedSongRepository,
 } from './repositories/index.js';

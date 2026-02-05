@@ -31,6 +31,7 @@ import type {
   SongMetadata,
   SongSet,
   SongChordOverride,
+  SavedSong,
 } from '@gigwidget/core';
 import {
   createAnonymousUser,
@@ -64,6 +65,9 @@ export class GigwidgetDatabase extends Dexie {
 
   // New tables (v3)
   songChordOverrides!: EntityTable<SongChordOverride, 'id'>;
+
+  // New tables (v4)
+  savedSongs!: EntityTable<SavedSong, 'id'>;
 
   constructor() {
     super('gigwidget');
@@ -135,6 +139,40 @@ export class GigwidgetDatabase extends Dexie {
       // New tables
       songChordOverrides: 'id, userId, songId, [userId+songId+chordName]',
     });
+
+    // Version 4: Add saved songs tracking for song lineage
+    this.version(4).stores({
+      // Existing tables
+      users: 'id, supabaseId, createdAt',
+      userPreferences: 'userId',
+      // Updated: added type and sourceId indexes for saved/forked song queries
+      songs: 'id, ownerId, title, artist, visibility, updatedAt, type, sourceId, *tags, *spaceIds',
+      arrangements: 'id, songId, instrument, updatedAt',
+      snapshots: 'id, songId, arrangementId, createdAt',
+      spaces: 'id, ownerId, type, name, createdAt',
+      memberships: 'id, userId, spaceId, role',
+      sessions: 'id, hostId, type, createdAt, expiresAt',
+      sessionParticipants: '[sessionId+userId], sessionId, userId',
+      syncStates: 'userId, syncStatus',
+      conflicts: 'id, songId, arrangementId, resolved, detectedAt',
+      customInstruments: 'id, userId, name, baseType, isPublic',
+      localFingerings: 'id, userId, chordName, instrumentId, [userId+chordName+instrumentId]',
+      songMetadata: 'songId',
+      songSets: 'id, userId, parentSetId, name, isSetlist',
+      songChordOverrides: 'id, userId, songId, [userId+songId+chordName]',
+
+      // New table: Track saved song references for "View Original" and duplicate prevention
+      savedSongs: 'id, userId, sourceId, savedSongId, [userId+sourceId]',
+    }).upgrade(async (tx) => {
+      // Migration: Set type='original' for all existing songs that don't have a type
+      const songsTable = tx.table('songs');
+      await songsTable.toCollection().modify((song) => {
+        if (!song.type) {
+          song.type = 'original';
+        }
+      });
+      console.log('[DB] Migrated existing songs to type="original"');
+    });
   }
 }
 
@@ -183,6 +221,7 @@ export async function clearDatabase(): Promise<void> {
     db.songMetadata,
     db.songSets,
     db.songChordOverrides,
+    db.savedSongs,
   ], async () => {
     await db.users.clear();
     await db.userPreferences.clear();
@@ -200,6 +239,7 @@ export async function clearDatabase(): Promise<void> {
     await db.songMetadata.clear();
     await db.songSets.clear();
     await db.songChordOverrides.clear();
+    await db.savedSongs.clear();
   });
 
   console.log('[DB] Database cleared');
