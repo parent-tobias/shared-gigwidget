@@ -170,7 +170,7 @@ export const TIER_INFO: Record<SubscriptionTier, TierInfo> = {
       'Custom chord fingerings',
       'Cloud backup and sync',
     ],
-    price: '$4.99/month',
+    price: '$1.99/month',
   },
   pro: {
     name: 'pro',
@@ -182,7 +182,7 @@ export const TIER_INFO: Record<SubscriptionTier, TierInfo> = {
       'Real-time collaboration',
       'Session management tools',
     ],
-    price: '$9.99/month',
+    price: '$4.99/month',
   },
   mod: {
     name: 'mod',

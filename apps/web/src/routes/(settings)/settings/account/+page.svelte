@@ -617,7 +617,8 @@
             <h3>{info.displayName}</h3>
             <p class="plan-desc">{info.description}</p>
             {#if info.price}
-              <p class="plan-price">{info.price}</p>
+              <p class="plan-price"><s>{info.price}</s></p>
+              <p class="plan-waived">Waived during development</p>
             {:else}
               <p class="plan-price">Free</p>
             {/if}
@@ -1012,6 +1013,17 @@
     font-size: 1.25rem;
     font-weight: 600;
     margin: var(--spacing-sm) 0;
+  }
+
+  .plan-price s {
+    color: var(--color-text-muted);
+  }
+
+  .plan-waived {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #4ade80;
+    margin: 0 0 var(--spacing-sm);
   }
 
   .features {
