@@ -1,7 +1,7 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
-  import type { User } from '@gigwidget/core';
+  import type { User, SongSet } from '@gigwidget/core';
   import type { OzbcozSearchResult, OzbcozSongDetail } from '@gigwidget/core';
 
   let user = $state<User | null>(null);
@@ -36,6 +36,12 @@
   let fileImportProgress = $state({ current: 0, total: 0 });
   let fileImportResults = $state<{ success: number; failed: number }>({ success: 0, failed: 0 });
 
+  // Import options state
+  let importTags = $state('');
+  let collections = $state<SongSet[]>([]);
+  let selectedCollectionId = $state<string>('none');
+  let newCollectionName = $state('');
+
   // Scraper functions loaded dynamically
   let searchOzbcozSongs: typeof import('@gigwidget/core').searchOzbcozSongs;
   let getOzbcozSongDetail: typeof import('@gigwidget/core').getOzbcozSongDetail;
@@ -52,6 +58,10 @@
       const users = await db.users.toArray();
       if (users.length > 0) {
         user = users[0];
+
+        // Load user collections for import options
+        const { SongSetRepository } = await import('@gigwidget/db');
+        collections = await SongSetRepository.getByUser(users[0].id);
       }
 
       // Load scraper functions
@@ -174,15 +184,29 @@
     const filesToImport = parsedFiles.filter(f => f.selected);
     if (filesToImport.length === 0) return;
 
+    if (selectedCollectionId === 'new' && !newCollectionName.trim()) {
+      error = 'Please enter a name for the new collection.';
+      return;
+    }
+
+    // Build tags: always include 'imported', plus user-defined tags
+    const userTags = importTags
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0 && t !== 'imported');
+    const allTags = ['imported', ...userTags];
+
     isImportingFiles = true;
     error = null;
     fileImportProgress = { current: 0, total: filesToImport.length };
     fileImportResults = { success: 0, failed: 0 };
 
     try {
-      const { getDatabase } = await import('@gigwidget/db');
-      const { createSong, createArrangement } = await import('@gigwidget/core');
+      const { getDatabase, SongSetRepository } = await import('@gigwidget/db');
+      const { createSong, createArrangement, generateId } = await import('@gigwidget/core');
       const db = getDatabase();
+
+      const importedSongIds: string[] = [];
 
       for (let i = 0; i < filesToImport.length; i++) {
         const file = filesToImport[i];
@@ -194,7 +218,7 @@
             artist: file.artist,
             key: file.key as any,
             tempo: file.tempo,
-            tags: ['imported', 'file-import'],
+            tags: allTags,
             visibility: 'public',
           });
 
@@ -207,10 +231,36 @@
           await db.songs.add(song);
           await db.arrangements.add(arrangement);
 
+          importedSongIds.push(song.id);
           fileImportResults.success++;
         } catch (err) {
           console.error(`Failed to import ${file.filename}:`, err);
           fileImportResults.failed++;
+        }
+      }
+
+      // Add imported songs to collection if one was selected/created
+      if (selectedCollectionId !== 'none' && importedSongIds.length > 0) {
+        let targetSetId = selectedCollectionId;
+
+        if (selectedCollectionId === 'new' && newCollectionName.trim()) {
+          const newSet: SongSet = {
+            id: generateId(),
+            userId: user.id,
+            name: newCollectionName.trim(),
+            songIds: [],
+            isSetlist: false,
+            visibility: 'private',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          await SongSetRepository.create(newSet);
+          collections = [...collections, newSet];
+          targetSetId = newSet.id;
+        }
+
+        for (const songId of importedSongIds) {
+          await SongSetRepository.addSong(targetSetId, songId);
         }
       }
 
@@ -406,6 +456,52 @@
           {/each}
         </div>
 
+        {#if selectedCount > 0}
+          <div class="import-options">
+            <h3>Import Options</h3>
+
+            <div class="form-group">
+              <label for="import-tags">Tags</label>
+              <input
+                type="text"
+                id="import-tags"
+                bind:value={importTags}
+                placeholder="worship, classic, practice (comma-separated)"
+                disabled={isImportingFiles}
+              />
+              <span class="help-text">The tag "imported" is always included automatically.</span>
+            </div>
+
+            <div class="form-group">
+              <label for="import-collection">Add to Collection</label>
+              <select
+                id="import-collection"
+                bind:value={selectedCollectionId}
+                disabled={isImportingFiles}
+              >
+                <option value="none">None</option>
+                {#each collections as collection}
+                  <option value={collection.id}>{collection.name}</option>
+                {/each}
+                <option value="new">+ Create New Collection</option>
+              </select>
+            </div>
+
+            {#if selectedCollectionId === 'new'}
+              <div class="form-group">
+                <label for="new-collection-name">New Collection Name</label>
+                <input
+                  type="text"
+                  id="new-collection-name"
+                  bind:value={newCollectionName}
+                  placeholder="Enter collection name"
+                  disabled={isImportingFiles}
+                />
+              </div>
+            {/if}
+          </div>
+        {/if}
+
         <div class="import-actions">
           {#if isImportingFiles}
             <div class="progress-info">
@@ -415,7 +511,7 @@
             <button
               onclick={importSelectedFiles}
               class="btn btn-primary"
-              disabled={selectedCount === 0 || !user}
+              disabled={selectedCount === 0 || !user || (selectedCollectionId === 'new' && !newCollectionName.trim())}
             >
               Import {selectedCount} Selected Songs
             </button>
@@ -683,6 +779,41 @@
   .progress-info {
     color: var(--color-primary);
     font-weight: 500;
+  }
+
+  /* Import options */
+  .import-options {
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-lg);
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .import-options h3 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .import-options .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .import-options .form-group label {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .import-options .help-text {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
   }
 
   /* Search */
