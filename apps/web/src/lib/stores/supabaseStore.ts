@@ -259,10 +259,9 @@ export async function searchPublicSongs(
 
   try {
     // Build query with OR filter for title and artist
-    // Join with profiles to get owner display_name for attribution
     let queryBuilder = supabase
       .from('songs')
-      .select('*, profiles:user_id(display_name)', { count: 'exact' })
+      .select('*', { count: 'exact' })
       .eq('visibility', 'public');
 
     if (query.trim()) {
@@ -279,12 +278,26 @@ export async function searchPublicSongs(
       return { error };
     }
 
-    // Transform the joined data to flatten owner_display_name
-    const songs: SupabaseSong[] = (data ?? []).map((row: any) => ({
-      ...row,
-      owner_display_name: row.profiles?.display_name ?? undefined,
-      profiles: undefined, // Remove the nested object
-    }));
+    const songs = data as SupabaseSong[];
+
+    // Fetch owner display names for forked songs (songs with source_id)
+    const forkedSongs = songs.filter(s => s.source_id !== null);
+    if (forkedSongs.length > 0) {
+      const userIds = [...new Set(forkedSongs.map(s => s.user_id))];
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, display_name')
+        .in('id', userIds);
+
+      if (profiles) {
+        const profileMap = new Map(profiles.map(p => [p.id, p.display_name]));
+        for (const song of songs) {
+          if (song.source_id !== null) {
+            song.owner_display_name = profileMap.get(song.user_id) ?? undefined;
+          }
+        }
+      }
+    }
 
     return { data: songs, count: count ?? undefined };
   } catch (err) {
