@@ -69,14 +69,14 @@
   const fromContext = $derived($page.url.searchParams.get('from'));
   const collectionId = $derived($page.url.searchParams.get('collectionId'));
   const backLink = $derived(
-    isSessionSong
+    (isSessionSong || fromContext === 'session')
       ? '/session'
       : fromContext === 'collection' && collectionId
         ? `/collections/${collectionId}`
         : '/songs'
   );
   const backText = $derived(
-    isSessionSong
+    (isSessionSong || fromContext === 'session')
       ? 'Back to Session'
       : fromContext === 'collection'
         ? 'Back to Collection'
@@ -342,6 +342,12 @@
       }
 
       song = foundSong;
+
+      // Initialize session store for hosts (ensures broadcast works for edits/transpose)
+      if (!sessionStore) {
+        const { getSessionStore } = await import('$lib/stores/sessionStore.svelte');
+        sessionStore = getSessionStore();
+      }
 
       // Only load arrangements from DB if we didn't get them from session
       if (arrangements.length === 0) {

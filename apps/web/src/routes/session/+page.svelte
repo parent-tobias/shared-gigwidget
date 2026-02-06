@@ -209,7 +209,7 @@
           <ul class="song-list">
             {#each session.qrPayload.libraryManifest as song (song.id)}
               <li class="song-item">
-                <a href="/songs/{song.id}" class="song-link">
+                <a href="/songs/{song.id}?from=session" class="song-link">
                   <span class="song-title">{song.title}</span>
                   {#if song.artist}
                     <span class="song-artist">{song.artist}</span>
