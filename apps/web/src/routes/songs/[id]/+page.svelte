@@ -5,7 +5,7 @@
   import type { Song, Arrangement, MusicalKey, Visibility, SongChordOverride } from '@gigwidget/core';
   import { MUSICAL_KEYS, generateId, convertSavedToForked, canEditWithoutForking, hasViewableOriginal } from '@gigwidget/core';
   import { toast } from '$lib/stores/toastStore.svelte';
-  import { getPublicSongById, saveSongToSupabase } from '$lib/stores/supabaseStore';
+  import { getPublicSongById, saveSongToSupabase, deleteSavedSongReference } from '$lib/stores/supabaseStore';
   import ChordSelectionModal from '$lib/components/ChordSelectionModal.svelte';
 
   let song = $state<Song | null>(null);
@@ -473,6 +473,17 @@
         forkedFromId: forkedSong.forkedFromId,
         updatedAt: forkedSong.updatedAt,
       });
+
+      // Delete the saved song reference (no longer a direct save of the original)
+      if (song.sourceId) {
+        const { SavedSongRepository } = await import('@gigwidget/db');
+        await SavedSongRepository.deleteBySavedSongId(song.id);
+
+        // Also delete from cloud if authenticated
+        if (currentUser) {
+          await deleteSavedSongReference(currentUser.id, song.sourceId);
+        }
+      }
 
       // Update local state
       song = forkedSong;
