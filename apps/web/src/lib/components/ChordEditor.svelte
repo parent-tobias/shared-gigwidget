@@ -1,19 +1,20 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import type { LocalFingering } from '@gigwidget/core';
+  import { registerCustomInstruments } from '$lib/services/chordResolution';
 
-  // Map our instrument IDs to chord-component's expected names and string counts
-  const INSTRUMENT_CONFIG: Record<string, { name: string; strings: number }> = {
-    'guitar': { name: 'Standard Guitar', strings: 6 },
-    'ukulele': { name: 'Standard Ukulele', strings: 4 },
-    'baritone-ukulele': { name: 'Baritone Ukulele', strings: 4 },
-    'mandolin': { name: 'Standard Mandolin', strings: 4 },
-    'drop-d-guitar': { name: 'Drop-D Guitar', strings: 6 },
-    '5ths-ukulele': { name: '5ths tuned Ukulele', strings: 4 },
+  // Map our instrument IDs to chord-component v2 IDs and string counts
+  const INSTRUMENT_CONFIG: Record<string, { chordComponentId: string; strings: number }> = {
+    'guitar': { chordComponentId: 'guitar', strings: 6 },
+    'ukulele': { chordComponentId: 'ukulele', strings: 4 },
+    'baritone-ukulele': { chordComponentId: 'baritone-ukulele', strings: 4 },
+    'mandolin': { chordComponentId: 'mandolin', strings: 4 },
+    'drop-d-guitar': { chordComponentId: 'guitar-drop-d', strings: 6 },
+    '5ths-ukulele': { chordComponentId: 'ukulele-5ths', strings: 4 },
   };
 
-  function getChordComponentInstrumentName(instrumentId: string): string {
-    return INSTRUMENT_CONFIG[instrumentId]?.name || instrumentId;
+  function getChordComponentId(instrumentId: string): string {
+    return INSTRUMENT_CONFIG[instrumentId]?.chordComponentId || instrumentId;
   }
 
   function getStringCount(instrumentId: string): number {
@@ -51,8 +52,8 @@
 
   let { chordName, instrumentId, existingFingering, onSave, onCancel }: Props = $props();
 
-  // Get the chord-component compatible instrument name
-  let chordComponentInstrument = $derived(getChordComponentInstrumentName(instrumentId || 'guitar'));
+  // Get the chord-component v2 compatible instrument ID
+  let chordComponentInstrument = $derived(getChordComponentId(instrumentId || 'guitar'));
 
   // Form state - provide default structure for new chords
   let chordData = $state<any>(
@@ -106,11 +107,13 @@
       }
 
       await import('@parent-tobias/chord-component');
+      await registerCustomInstruments();
       componentReady = true;
     } catch (err) {
       console.error('Failed to load chord-component:', err);
       // If error is about already defined, component is still ready
       if (err instanceof DOMException && err.message.includes('already been defined')) {
+        await registerCustomInstruments();
         componentReady = true;
       }
     }

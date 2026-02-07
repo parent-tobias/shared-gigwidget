@@ -1,6 +1,30 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import type { ResolvedChord } from '@gigwidget/core';
+  import { registerCustomInstruments } from '$lib/services/chordResolution';
+
+  // Map app instrument IDs to chord-component v2 IDs
+  const CHORD_COMPONENT_IDS: Record<string, string> = {
+    'drop-d-guitar': 'guitar-drop-d',
+    '5ths-ukulele': 'ukulele-5ths',
+  };
+
+  function getChordComponentId(id: string): string {
+    return CHORD_COMPONENT_IDS[id] || id;
+  }
+
+  // Svelte action: set chordFingers/chordBarres JS properties on <chord-diagram>
+  function setChordData(node: HTMLElement, variation: ResolvedChord) {
+    function update(v: ResolvedChord) {
+      const fingers = v.positions.map((fret, i) =>
+        fret === -1 ? [i + 1, 'x'] : [i + 1, fret]
+      );
+      (node as any).chordFingers = fingers;
+      (node as any).chordBarres = v.barres || [];
+    }
+    update(variation);
+    return { update };
+  }
 
   interface Props {
     chordName: string;
@@ -10,6 +34,8 @@
   }
 
   let { chordName, instrumentId, onChordSelect, onCreateNew }: Props = $props();
+
+  let chordComponentInstrument = $derived(getChordComponentId(instrumentId || 'ukulele'));
 
   let chordVariations = $state<ResolvedChord[]>([]);
   let selectedChord = $state<ResolvedChord | null>(null);
@@ -34,10 +60,21 @@
 
   async function loadChordComponent() {
     try {
+      if (customElements.get('chord-diagram')) {
+        await registerCustomInstruments();
+        componentReady = true;
+        return;
+      }
+
       await import('@parent-tobias/chord-component');
+      await registerCustomInstruments();
       componentReady = true;
     } catch (err) {
       console.error('Failed to load chord-component:', err);
+      if (err instanceof DOMException && err.message.includes('already been defined')) {
+        await registerCustomInstruments();
+        componentReady = true;
+      }
     }
   }
 
@@ -56,7 +93,7 @@
       }
 
       const userId = users[0].id;
-      const targetInstrumentId = instrumentId || 'Standard Ukulele';
+      const targetInstrumentId = instrumentId || 'ukulele';
 
       // Get all variations using resolution service
       chordVariations = await getAllChordVariationsWithSystemChords(
@@ -129,13 +166,8 @@
           >
             {#if componentReady}
               <chord-diagram
-                chord={JSON.stringify({
-                  positions: variation.positions,
-                  fingers: variation.fingers,
-                  barres: variation.barres,
-                  baseFret: variation.baseFret,
-                })}
-                size="small"
+                instrument={chordComponentInstrument}
+                use:setChordData={variation}
               ></chord-diagram>
             {:else}
               <div class="positions-text">{formatPositions(variation.positions)}</div>

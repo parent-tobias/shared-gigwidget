@@ -36,17 +36,11 @@
   // Instrument string count for SVGuitar
   const INSTRUMENT_STRINGS: Record<string, number> = {
     'guitar': 6,
-    'Standard Guitar': 6,
     'ukulele': 4,
-    'Standard Ukulele': 4,
     'baritone-ukulele': 4,
-    'Baritone Ukulele': 4,
     'mandolin': 4,
-    'Standard Mandolin': 4,
     'drop-d-guitar': 6,
-    'Drop-D Guitar': 6,
     '5ths-ukulele': 4,
-    '5ths tuned Ukulele': 4,
   };
 
   $effect(() => {

@@ -36,8 +36,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       '@parent-tobias/chord-component':
-        specifier: ^1.1.0
-        version: 1.1.0(lit@3.3.2)
+        specifier: ^2.0.0
+        version: 2.0.0(lit@3.3.2)
       '@parent-tobias/chordpro-editor':
         specifier: latest
         version: 1.0.0
@@ -346,6 +346,12 @@ packages:
 
   '@parent-tobias/chord-component@1.1.0':
     resolution: {integrity: sha512-uHZAhZU1h2T9q2DRXXzehUI73YTXh1KmdTjRXOg98nTpA/ccv8d9qKnQ9Rz5DfJxj3Cv1iJHaXZvM7/LShaNrw==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      lit: ^3.0.0
+
+  '@parent-tobias/chord-component@2.0.0':
+    resolution: {integrity: sha512-DkCiRMye/eeOh37BVjfiFEd1SoH+Miu19sVZaMh6A6qiRIwMfIMGzDRFToPoAnP2CYSm/uPPQEay1dGB7OiAOw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       lit: ^3.0.0
@@ -1282,6 +1288,11 @@ snapshots:
       '@lit-labs/ssr-dom-shim': 1.5.1
 
   '@parent-tobias/chord-component@1.1.0(lit@3.3.2)':
+    dependencies:
+      lit: 3.3.2
+      svguitar: 2.5.0
+
+  '@parent-tobias/chord-component@2.0.0(lit@3.3.2)':
     dependencies:
       lit: 3.3.2
       svguitar: 2.5.0

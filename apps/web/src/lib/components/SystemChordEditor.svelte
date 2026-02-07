@@ -3,21 +3,21 @@
   import { hasPermission } from '@gigwidget/core';
   import type { SupabaseSystemChord } from '$lib/stores/supabaseStore';
   import { upsertSystemChord, deleteSystemChord } from '$lib/stores/supabaseStore';
-  import { clearSystemChordCacheForChord } from '$lib/services/chordResolution';
+  import { clearSystemChordCacheForChord, registerCustomInstruments } from '$lib/services/chordResolution';
   import { getSupabaseUserId } from '$lib/stores/authStore.svelte';
 
-  // Map our instrument IDs to chord-component's expected names and string counts
-  const INSTRUMENT_CONFIG: Record<string, { name: string; strings: number }> = {
-    'guitar': { name: 'Standard Guitar', strings: 6 },
-    'ukulele': { name: 'Standard Ukulele', strings: 4 },
-    'baritone-ukulele': { name: 'Baritone Ukulele', strings: 4 },
-    'mandolin': { name: 'Standard Mandolin', strings: 4 },
-    'drop-d-guitar': { name: 'Drop-D Guitar', strings: 6 },
-    '5ths-ukulele': { name: '5ths tuned Ukulele', strings: 4 },
+  // Map our instrument IDs to chord-component v2 IDs and string counts
+  const INSTRUMENT_CONFIG: Record<string, { chordComponentId: string; strings: number }> = {
+    'guitar': { chordComponentId: 'guitar', strings: 6 },
+    'ukulele': { chordComponentId: 'ukulele', strings: 4 },
+    'baritone-ukulele': { chordComponentId: 'baritone-ukulele', strings: 4 },
+    'mandolin': { chordComponentId: 'mandolin', strings: 4 },
+    'drop-d-guitar': { chordComponentId: 'guitar-drop-d', strings: 6 },
+    '5ths-ukulele': { chordComponentId: 'ukulele-5ths', strings: 4 },
   };
 
-  function getChordComponentInstrumentName(instrumentId: string): string {
-    return INSTRUMENT_CONFIG[instrumentId]?.name || instrumentId;
+  function getChordComponentId(instrumentId: string): string {
+    return INSTRUMENT_CONFIG[instrumentId]?.chordComponentId || instrumentId;
   }
 
   function getStringCount(instrumentId: string): number {
@@ -55,8 +55,8 @@
 
   let { chordName, instrumentId, existingSystemChord, onSave, onCancel }: Props = $props();
 
-  // Get the chord-component compatible instrument name
-  let chordComponentInstrument = $derived(getChordComponentInstrumentName(instrumentId));
+  // Get the chord-component v2 compatible instrument ID
+  let chordComponentInstrument = $derived(getChordComponentId(instrumentId));
 
   // Permission check
   let user = $state<any>(null);
@@ -119,11 +119,13 @@
       // Check if custom elements are already defined
       if (customElements.get('chord-editor')) {
         console.log('[SystemChordEditor] chord-editor already registered');
+        await registerCustomInstruments();
         componentReady = true;
         return;
       }
 
       await import('@parent-tobias/chord-component');
+      await registerCustomInstruments();
       console.log('[SystemChordEditor] chord-component loaded successfully');
       componentReady = true;
     } catch (err) {
@@ -131,6 +133,7 @@
       // If error is about already defined, component is still ready
       if (err instanceof DOMException && err.message.includes('already been defined')) {
         console.log('[SystemChordEditor] Custom elements already defined, continuing anyway');
+        await registerCustomInstruments();
         componentReady = true;
       }
     }

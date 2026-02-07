@@ -168,6 +168,15 @@ class WebChordDataProvider implements ChordDataProvider {
     }
   }
 
+  // Map app instrument IDs to chord-component v2 IDs
+  private getChordComponentId(instrumentId: string): string {
+    const mapping: Record<string, string> = {
+      'drop-d-guitar': 'guitar-drop-d',
+      '5ths-ukulele': 'ukulele-5ths',
+    };
+    return mapping[instrumentId] || instrumentId;
+  }
+
   // Dynamic generation (chord-component)
   async getDynamicChord(chordName: string, instrumentId: string): Promise<ResolvedChord | null> {
     try {
@@ -184,6 +193,9 @@ class WebChordDataProvider implements ChordDataProvider {
         }
       }
 
+      // Register any user-created custom instruments
+      await registerCustomInstruments();
+
       // Import chord-component service, with error handling for re-registration
       let chordDataService;
       try {
@@ -199,7 +211,8 @@ class WebChordDataProvider implements ChordDataProvider {
         }
       }
 
-      const chordData = await chordDataService.getChord(instrumentId, chordName, false);
+      const chordComponentId = this.getChordComponentId(instrumentId);
+      const chordData = await chordDataService.getChord(chordComponentId, chordName, false);
 
       if (chordData && chordData.fingers && chordData.fingers.length > 0) {
         // Convert from chord-component format to our format
@@ -270,6 +283,48 @@ export async function getAllChordVariationsWithSystemChords(
   instrumentId: string
 ): Promise<ResolvedChord[]> {
   return chordResolutionService.getAllChordVariations(userId, chordName, instrumentId);
+}
+
+// ============================================================================
+// Custom Instrument Registration
+// ============================================================================
+
+let customInstrumentsRegistered = false;
+
+/**
+ * Register user-created custom instruments with the chord-component library.
+ * Call this after the chord-component has been loaded. Safe to call multiple times
+ * (only registers once).
+ */
+export async function registerCustomInstruments(): Promise<void> {
+  if (customInstrumentsRegistered) return;
+  customInstrumentsRegistered = true;
+
+  try {
+    const { registerInstrument } = await import('@parent-tobias/chord-component');
+    const { CustomInstrumentRepository, getDatabase } = await import('@gigwidget/db');
+    const db = getDatabase();
+
+    const users = await db.users.toArray();
+    if (users.length === 0) return;
+
+    const instruments = await CustomInstrumentRepository.getByUser(users[0].id);
+    for (const inst of instruments) {
+      try {
+        registerInstrument(inst.id, {
+          name: inst.name,
+          strings: inst.strings,
+          frets: inst.frets,
+        });
+        console.log(`[ChordResolution] Registered custom instrument: ${inst.name} (${inst.id})`);
+      } catch (err) {
+        // Instrument may already be registered
+        console.warn(`[ChordResolution] Failed to register instrument ${inst.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('[ChordResolution] Failed to register custom instruments:', err);
+  }
 }
 
 // Re-export the core service for direct access if needed
