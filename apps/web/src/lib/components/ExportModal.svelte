@@ -1,11 +1,22 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
   import { toast } from '$lib/stores/toastStore.svelte';
+  import type { CustomInstrument } from '@gigwidget/core';
   import type {
     ExportFormat,
     ExportSortOrder,
     ExportSongData,
     ExportOptions,
   } from '$lib/services/exportService';
+
+  const BUILT_IN_INSTRUMENTS = [
+    { id: 'guitar', name: 'Standard Guitar' },
+    { id: 'guitar-drop-d', name: 'Drop-D Guitar' },
+    { id: 'ukulele', name: 'Standard Ukulele' },
+    { id: 'baritone-ukulele', name: 'Baritone Ukulele' },
+    { id: 'ukulele-5ths', name: '5ths tuned Ukulele' },
+    { id: 'mandolin', name: 'Standard Mandolin' },
+  ] as const;
 
   interface Props {
     songs: ExportSongData[];
@@ -18,11 +29,38 @@
 
   let format = $state<ExportFormat>('chordpro');
   let includeChordDiagrams = $state(true);
+  let diagramInstrument = $state('guitar');
+  let customInstruments = $state<CustomInstrument[]>([]);
   let sortOrder = $state<ExportSortOrder>('as-is');
   let exporting = $state(false);
+  let hasLoadedPrefs = false;
 
   const isMulti = $derived(mode !== 'single');
   const songCount = $derived(songs.length);
+
+  // Load user's default instrument preference and custom instruments
+  $effect(() => {
+    if (!browser || hasLoadedPrefs) return;
+    hasLoadedPrefs = true;
+
+    (async () => {
+      try {
+        const { getDatabase } = await import('@gigwidget/db');
+        const { CustomInstrumentRepository } = await import('@gigwidget/db');
+        const db = getDatabase();
+        const users = await db.users.toArray();
+        if (users.length > 0) {
+          const prefs = await db.userPreferences.where('userId').equals(users[0].id).first();
+          if (prefs?.defaultInstrument) {
+            diagramInstrument = prefs.defaultInstrument;
+          }
+          customInstruments = await CustomInstrumentRepository.getByUser(users[0].id);
+        }
+      } catch {
+        // Keep default
+      }
+    })();
+  });
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') onClose();
@@ -42,6 +80,7 @@
       const options: ExportOptions = {
         format,
         includeChordDiagrams,
+        instrumentId: diagramInstrument,
         sortOrder,
       };
 
@@ -105,6 +144,23 @@
           <input type="checkbox" bind:checked={includeChordDiagrams} disabled={exporting} />
           <span>Include chord diagrams</span>
         </label>
+        {#if includeChordDiagrams}
+          <div class="instrument-select">
+            <label for="diagram-instrument">Instrument</label>
+            <select id="diagram-instrument" bind:value={diagramInstrument} disabled={exporting}>
+              {#each BUILT_IN_INSTRUMENTS as instrument}
+                <option value={instrument.id}>{instrument.name}</option>
+              {/each}
+              {#if customInstruments.length > 0}
+                <optgroup label="Custom Instruments">
+                  {#each customInstruments as instrument}
+                    <option value={instrument.id}>{instrument.name}</option>
+                  {/each}
+                </optgroup>
+              {/if}
+            </select>
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -203,6 +259,29 @@
   .checkbox-label input {
     width: auto;
     cursor: pointer;
+  }
+
+  .instrument-select {
+    margin-top: var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 0.875rem;
+  }
+
+  .instrument-select label {
+    white-space: nowrap;
+    color: var(--color-text-muted);
+  }
+
+  .instrument-select select {
+    flex: 1;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text);
+    font-size: 0.875rem;
   }
 
   .modal-actions {

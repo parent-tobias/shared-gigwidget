@@ -17,6 +17,7 @@ export type ExportSortOrder = 'as-is' | 'alphabetical' | 'set-order';
 export interface ExportOptions {
   format: ExportFormat;
   includeChordDiagrams?: boolean;
+  instrumentId?: string;
   sortOrder?: ExportSortOrder;
 }
 
@@ -356,17 +357,56 @@ async function renderSongToPdf(
   if (options.includeChordDiagrams) {
     const chords = extractChordsFromContent(data.content);
     if (chords.length > 0) {
-      await renderChordDiagrams(doc, chords, data.song);
+      await renderChordDiagrams(doc, chords, data.song, options.instrumentId);
     }
   }
+}
+
+interface ResolvedChordData {
+  positions: number[];
+  barres?: Array<{ fret: number; fromString: number; toString: number }>;
+  baseFret: number;
+}
+
+async function resolveChordData(
+  chordNames: string[],
+  song: Song,
+  instrumentId?: string,
+): Promise<Map<string, ResolvedChordData>> {
+  const resolved = new Map<string, ResolvedChordData>();
+  try {
+    const { resolveChordForSongWithSystemChords } = await import('$lib/services/chordResolution');
+    const instrument = instrumentId || 'guitar';
+
+    await Promise.all(
+      chordNames.map(async (chordName) => {
+        const result = await resolveChordForSongWithSystemChords({
+          userId: song.userId,
+          chordName,
+          instrumentId: instrument,
+          songId: song.id,
+        });
+        if (result) {
+          resolved.set(chordName, {
+            positions: result.positions,
+            barres: result.barres,
+            baseFret: result.baseFret,
+          });
+        }
+      }),
+    );
+  } catch (err) {
+    console.error('Failed to resolve chords for export:', err);
+  }
+  return resolved;
 }
 
 async function renderChordDiagrams(
   doc: InstanceType<typeof import('jspdf').jsPDF>,
   chordNames: string[],
   song: Song,
+  instrumentId?: string,
 ): Promise<void> {
-  // We'll render chord diagrams in the right margin of the first page
   const diagramX = PAGE_W - MARGIN_R_DIAGRAMS + 10;
   let diagramY = MARGIN_T;
   let currentPage = 1;
@@ -375,40 +415,34 @@ async function renderChordDiagrams(
   // Switch to first page of this song for diagrams
   doc.setPage(totalPages - doc.getNumberOfPages() + 1);
 
-  try {
-    const { SVGuitarChord } = await import('svguitar');
+  // Resolve all chords up front
+  const chordData = await resolveChordData(chordNames, song, instrumentId);
 
-    for (const chordName of chordNames) {
-      // Check if we need to move to next page for diagrams
-      if (diagramY + DIAGRAM_H + DIAGRAM_LABEL_SIZE > PAGE_H - MARGIN_B) {
-        // Move to next page if available, otherwise skip remaining diagrams
-        if (currentPage < totalPages) {
-          currentPage++;
-          doc.setPage(currentPage);
-          diagramY = MARGIN_T;
-        } else {
-          break;
-        }
+  for (const chordName of chordNames) {
+    // Check if we need to move to next page for diagrams
+    if (diagramY + DIAGRAM_H + DIAGRAM_LABEL_SIZE > PAGE_H - MARGIN_B) {
+      if (currentPage < totalPages) {
+        currentPage++;
+        doc.setPage(currentPage);
+        diagramY = MARGIN_T;
+      } else {
+        break;
       }
-
-      // Draw chord label
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(DIAGRAM_LABEL_SIZE);
-      doc.text(chordName, diagramX + DIAGRAM_W / 2, diagramY, { align: 'center' });
-      diagramY += DIAGRAM_LABEL_SIZE + 2;
-
-      // Draw a simple text-based chord diagram placeholder
-      // (SVGuitarChord requires a DOM container, so for PDF we draw a simple grid)
-      drawChordGrid(doc, diagramX, diagramY, DIAGRAM_W - 10, DIAGRAM_H - DIAGRAM_LABEL_SIZE - DIAGRAM_GAP);
-
-      diagramY += DIAGRAM_H - DIAGRAM_LABEL_SIZE + DIAGRAM_GAP;
     }
-  } catch (err) {
-    console.error('Failed to render chord diagrams:', err);
-    // Fallback: just list chord names
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.text('Chords: ' + chordNames.join(', '), diagramX, diagramY);
+
+    // Draw chord label
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(DIAGRAM_LABEL_SIZE);
+    doc.text(chordName, diagramX + DIAGRAM_W / 2, diagramY, { align: 'center' });
+    diagramY += DIAGRAM_LABEL_SIZE + 2;
+
+    const data = chordData.get(chordName);
+    const gridW = DIAGRAM_W - 10;
+    const gridH = DIAGRAM_H - DIAGRAM_LABEL_SIZE - DIAGRAM_GAP;
+
+    drawChordGrid(doc, diagramX, diagramY, gridW, gridH, data);
+
+    diagramY += DIAGRAM_H - DIAGRAM_LABEL_SIZE + DIAGRAM_GAP;
   }
 
   // Restore to last page
@@ -421,30 +455,91 @@ function drawChordGrid(
   y: number,
   w: number,
   h: number,
+  data?: ResolvedChordData,
 ): void {
-  // Draw a simple 4-string, 4-fret chord grid
-  const strings = 4;
+  const numStrings = data ? data.positions.length : 4;
   const frets = 4;
-  const stringSpacing = w / (strings - 1);
+  const stringSpacing = w / (numStrings - 1);
   const fretSpacing = h / frets;
+  const baseFret = data?.baseFret ?? 1;
+  const isOpenPosition = baseFret <= 1;
 
-  doc.setDrawColor(100, 100, 100);
-  doc.setLineWidth(0.5);
+  // Reserve space above grid for open/muted markers
+  const markerAreaH = 10;
+  const gridY = y + markerAreaH;
 
-  // Nut (top bar)
-  doc.setLineWidth(2);
-  doc.line(x, y, x + w, y);
+  doc.setDrawColor(80, 80, 80);
+
+  // Nut or position indicator
+  if (isOpenPosition) {
+    doc.setLineWidth(2);
+    doc.line(x, gridY, x + w, gridY);
+  } else {
+    doc.setLineWidth(0.5);
+    doc.line(x, gridY, x + w, gridY);
+    // Fret number label
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.text(`${baseFret}`, x - 8, gridY + fretSpacing / 2 + 2);
+  }
+
   doc.setLineWidth(0.5);
 
   // Fret lines
   for (let f = 1; f <= frets; f++) {
-    const fy = y + f * fretSpacing;
+    const fy = gridY + f * fretSpacing;
     doc.line(x, fy, x + w, fy);
   }
 
   // String lines
-  for (let s = 0; s < strings; s++) {
+  for (let s = 0; s < numStrings; s++) {
     const sx = x + s * stringSpacing;
-    doc.line(sx, y, sx, y + h);
+    doc.line(sx, gridY, sx, gridY + h);
+  }
+
+  if (!data) return;
+
+  const dotRadius = Math.min(stringSpacing, fretSpacing) * 0.28;
+
+  // Draw barres first (behind dots)
+  if (data.barres) {
+    for (const barre of data.barres) {
+      const relativeFret = barre.fret - baseFret + 1;
+      if (relativeFret < 1 || relativeFret > frets) continue;
+      const barreY = gridY + (relativeFret - 0.5) * fretSpacing;
+      // fromString/toString are 1-indexed from low string (left)
+      const fromX = x + (barre.fromString - 1) * stringSpacing;
+      const toX = x + (barre.toString - 1) * stringSpacing;
+      const leftX = Math.min(fromX, toX);
+      const rightX = Math.max(fromX, toX);
+      doc.setFillColor(40, 40, 40);
+      doc.roundedRect(leftX - dotRadius, barreY - dotRadius, rightX - leftX + dotRadius * 2, dotRadius * 2, dotRadius, dotRadius, 'F');
+    }
+  }
+
+  // Draw finger dots, open strings, and muted strings
+  for (let s = 0; s < data.positions.length; s++) {
+    const fret = data.positions[s];
+    const sx = x + s * stringSpacing;
+
+    if (fret === -1) {
+      // Muted string: X above nut
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.text('x', sx, y + markerAreaH - 2, { align: 'center' });
+    } else if (fret === 0) {
+      // Open string: circle above nut
+      doc.setDrawColor(80, 80, 80);
+      doc.setLineWidth(0.8);
+      doc.circle(sx, y + markerAreaH - 4, 2.5, 'S');
+    } else {
+      // Fretted: filled dot at position
+      const relativeFret = fret - baseFret + 1;
+      if (relativeFret >= 1 && relativeFret <= frets) {
+        const dotY = gridY + (relativeFret - 0.5) * fretSpacing;
+        doc.setFillColor(40, 40, 40);
+        doc.circle(sx, dotY, dotRadius, 'F');
+      }
+    }
   }
 }
