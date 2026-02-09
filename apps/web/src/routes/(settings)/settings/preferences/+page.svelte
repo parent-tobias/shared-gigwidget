@@ -7,22 +7,32 @@
   import { syncPreferencesToCloud } from '$lib/stores/syncStore.svelte';
   import { setTheme } from '$lib/stores/themeStore.svelte';
 
-  // Built-in instruments that the chordpro-renderer supports
+  // Built-in instruments that the chordpro-renderer supports (v2 short IDs)
   const RENDERER_INSTRUMENTS = [
-    'Standard Guitar',
-    'Drop-D Guitar',
-    'Standard Ukulele',
-    'Baritone Ukulele',
-    '5ths tuned Ukulele',
-    'Standard Mandolin',
+    { id: 'guitar', name: 'Standard Guitar' },
+    { id: 'guitar-drop-d', name: 'Drop-D Guitar' },
+    { id: 'ukulele', name: 'Standard Ukulele' },
+    { id: 'baritone-ukulele', name: 'Baritone Ukulele' },
+    { id: 'ukulele-5ths', name: '5ths tuned Ukulele' },
+    { id: 'mandolin', name: 'Standard Mandolin' },
   ] as const;
+
+  /** Map legacy display names to v2 short IDs */
+  const LEGACY_INSTRUMENT_MAP: Record<string, string> = {
+    'Standard Guitar': 'guitar',
+    'Drop-D Guitar': 'guitar-drop-d',
+    'Standard Ukulele': 'ukulele',
+    'Baritone Ukulele': 'baritone-ukulele',
+    '5ths tuned Ukulele': 'ukulele-5ths',
+    'Standard Mandolin': 'mandolin',
+  };
 
   let user = $state<User | null>(null);
   let customInstruments = $state<CustomInstrument[]>([]);
   let hasLoaded = false;
 
   // Preferences state
-  let defaultInstrument = $state<string>('Standard Guitar'); // Default to Standard Guitar
+  let defaultInstrument = $state<string>('guitar');
   let chordListPosition = $state<'top' | 'right' | 'bottom'>('top');
   let theme = $state<'light' | 'dark' | 'auto'>('auto');
   let compactView = $state(false);
@@ -48,7 +58,7 @@
 
         const prefs = await db.userPreferences.where('userId').equals(users[0].id).first();
         if (prefs) {
-          if (prefs.defaultInstrument) defaultInstrument = prefs.defaultInstrument;
+          if (prefs.defaultInstrument) defaultInstrument = LEGACY_INSTRUMENT_MAP[prefs.defaultInstrument] || prefs.defaultInstrument;
           if (prefs.chordListPosition) chordListPosition = prefs.chordListPosition;
           if (prefs.theme) theme = prefs.theme;
           if (prefs.compactView) compactView = prefs.compactView;
@@ -148,7 +158,7 @@
           <option value="">None</option>
           <optgroup label="Built-in Instruments">
             {#each RENDERER_INSTRUMENTS as instrument}
-              <option value={instrument}>{instrument}</option>
+              <option value={instrument.id}>{instrument.name}</option>
             {/each}
           </optgroup>
           {#if customInstruments.length > 0}

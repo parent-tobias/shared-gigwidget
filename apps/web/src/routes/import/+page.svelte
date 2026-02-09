@@ -2,18 +2,8 @@
   import { browser } from '$app/environment';
   import { goto } from '$app/navigation';
   import type { User, SongSet } from '@gigwidget/core';
-  import type { OzbcozSearchResult, OzbcozSongDetail } from '@gigwidget/core';
-
   let user = $state<User | null>(null);
-  let activeTab = $state<'files' | 'ozbcoz'>('files');
 
-  // Ozbcoz search state
-  let searchQuery = $state('');
-  let searchResults = $state<OzbcozSearchResult[]>([]);
-  let selectedSong = $state<OzbcozSongDetail | null>(null);
-  let isSearching = $state(false);
-  let isLoadingDetails = $state(false);
-  let isImporting = $state(false);
   let error = $state<string | null>(null);
   let importSuccess = $state<string | null>(null);
   let hasInitialized = false;
@@ -42,9 +32,9 @@
   let selectedCollectionId = $state<string>('none');
   let newCollectionName = $state('');
 
-  // Scraper functions loaded dynamically
-  let searchOzbcozSongs: typeof import('@gigwidget/core').searchOzbcozSongs;
-  let getOzbcozSongDetail: typeof import('@gigwidget/core').getOzbcozSongDetail;
+  // Scraper functions loaded dynamically (disabled — copyright concerns)
+  // let searchOzbcozSongs: typeof import('@gigwidget/core').searchOzbcozSongs;
+  // let getOzbcozSongDetail: typeof import('@gigwidget/core').getOzbcozSongDetail;
 
   $effect(() => {
     if (!browser || hasInitialized) return;

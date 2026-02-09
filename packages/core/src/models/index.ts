@@ -60,7 +60,7 @@ export interface User {
 
 export interface UserPreferences {
   userId: string;
-  /** Renderer instrument name (e.g., "Standard Guitar") or custom instrument ID */
+  /** Renderer instrument ID (e.g., "guitar") or custom instrument ID */
   defaultInstrument?: string;
   defaultTuning?: string;
   autoSaveInterval: number; // ms

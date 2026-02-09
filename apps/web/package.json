@@ -18,7 +18,7 @@
     "@gigwidget/ui": "workspace:*",
     "@parent-tobias/chord-component": "^2.0.0",
     "@parent-tobias/chordpro-editor": "latest",
-    "@parent-tobias/chordpro-renderer": "latest",
+    "@parent-tobias/chordpro-renderer": "^2.0.0",
     "@parent-tobias/filesystem-component": "latest",
     "@supabase/supabase-js": "^2.91.0",
     "html5-qrcode": "^2.3.0",

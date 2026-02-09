@@ -22,7 +22,17 @@
   let chordListPosition = $state<'top' | 'right' | 'bottom'>('top');
   let theme = $state<'light' | 'dark' | 'auto'>('auto');
   let compactView = $state(false);
-  let defaultInstrument = $state<string>('Standard Guitar'); // Default to Standard Guitar to prevent chord viewer errors
+  let defaultInstrument = $state<string>('guitar');
+
+  /** Map legacy display names to v2 short IDs */
+  const LEGACY_INSTRUMENT_MAP: Record<string, string> = {
+    'Standard Guitar': 'guitar',
+    'Drop-D Guitar': 'guitar-drop-d',
+    'Standard Ukulele': 'ukulele',
+    'Baritone Ukulele': 'baritone-ukulele',
+    '5ths tuned Ukulele': 'ukulele-5ths',
+    'Standard Mandolin': 'mandolin',
+  };
 
   // Renderer view controls
   let isMaximized = $state(false);
@@ -55,6 +65,10 @@
   let songChordOverrides = $state<SongChordOverride[]>([]);
   let currentUser = $state<any>(null);
   let showChordPalette = $state(false);
+
+  // Renderer chord overrides (v2 JS-only property)
+  let rendererChordOverrides = $state<Record<string, { fingers: any[]; barres: any[] }> | null>(null);
+  let rendererElement: HTMLElement | undefined = $state();
 
   // Fork confirmation state (for saved songs that need forking before edit)
   let showForkModal = $state(false);
@@ -120,7 +134,8 @@
   function extractInstrumentFromContent(content: string): string | null {
     const match = content.match(/^\{instrument\s*:\s*([^}]+)\}/im);
     if (match) {
-      return match[1].trim();
+      const raw = match[1].trim();
+      return LEGACY_INSTRUMENT_MAP[raw] || raw;
     }
     return null;
   }
@@ -132,7 +147,7 @@
   });
 
   // The instrument to use for chord operations: song's instrument > user's default
-  const effectiveInstrument = $derived(songInstrument || defaultInstrument || 'Standard Guitar');
+  const effectiveInstrument = $derived(songInstrument || defaultInstrument || 'guitar');
 
   // Local transpose function (will be loaded async)
   let transposeContentLocal = (content: string, semitones: number) => content;
@@ -377,7 +392,7 @@
           if (prefs.chordListPosition) chordListPosition = prefs.chordListPosition;
           if (prefs.theme) theme = prefs.theme;
           if (prefs.compactView) compactView = prefs.compactView;
-          if (prefs.defaultInstrument) defaultInstrument = prefs.defaultInstrument;
+          if (prefs.defaultInstrument) defaultInstrument = LEGACY_INSTRUMENT_MAP[prefs.defaultInstrument] || prefs.defaultInstrument;
 
           // Apply compact view class to document
           if (prefs.compactView) {
@@ -802,6 +817,54 @@
       loadSongChordOverrides();
     }
   });
+
+  // Resolve all chords for the renderer's chordOverrides property
+  $effect(() => {
+    if (!browser || !currentUser || !song || uniqueChords.length === 0) {
+      rendererChordOverrides = null;
+      return;
+    }
+    const chordsToResolve = uniqueChords;
+    const instrument = effectiveInstrument;
+    const userId = currentUser.id;
+    const songIdVal = song.id;
+    // Track songChordOverrides for reactivity (re-resolve when user picks a variation)
+    const _overrides = songChordOverrides;
+
+    resolveAllChordsForRenderer(chordsToResolve, instrument, userId, songIdVal);
+  });
+
+  async function resolveAllChordsForRenderer(chordNames: string[], instrument: string, userId: string, songId: string) {
+    try {
+      const { resolveChordForSongWithSystemChords } = await import('$lib/services/chordResolution');
+      const overrides: Record<string, { fingers: any[]; barres: any[] }> = {};
+
+      await Promise.all(chordNames.map(async (chordName) => {
+        const resolved = await resolveChordForSongWithSystemChords({
+          userId, chordName, instrumentId: instrument, songId
+        });
+        if (resolved) {
+          overrides[chordName] = {
+            fingers: resolved.positions.map((fret, i) =>
+              fret === -1 ? [i + 1, 'x'] : [i + 1, fret]
+            ),
+            barres: resolved.barres || [],
+          };
+        }
+      }));
+
+      rendererChordOverrides = overrides;
+    } catch (err) {
+      console.error('Failed to resolve chords for renderer:', err);
+    }
+  }
+
+  // Push JS-only properties to the renderer element
+  $effect(() => {
+    if (rendererElement && rendererReady) {
+      (rendererElement as any).chordOverrides = rendererChordOverrides;
+    }
+  });
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -1008,6 +1071,7 @@
             </div>
             <div class="renderer-wrapper" class:renderer-light={rendererTheme === 'light'}>
               <chordpro-renderer
+                bind:this={rendererElement}
                 content={displayContent}
                 theme={rendererTheme === 'dark' ? 'chordpro-dark' : 'chordpro-light'}
                 chord-position={chordListPosition}
