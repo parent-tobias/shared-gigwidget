@@ -7,6 +7,8 @@
   import { toast } from '$lib/stores/toastStore.svelte';
   import { getPublicSongById, saveSongToSupabase, deleteSavedSongReference } from '$lib/stores/supabaseStore';
   import ChordSelectionModal from '$lib/components/ChordSelectionModal.svelte';
+  import ExportModal from '$lib/components/ExportModal.svelte';
+  import type { ExportSongData } from '$lib/services/exportService';
 
   let song = $state<Song | null>(null);
   let arrangements = $state<Arrangement[]>([]);
@@ -65,6 +67,9 @@
   let songChordOverrides = $state<SongChordOverride[]>([]);
   let currentUser = $state<any>(null);
   let showChordPalette = $state(false);
+
+  // Export state
+  let showExportModal = $state(false);
 
   // Renderer chord overrides (v2 JS-only property)
   let rendererChordOverrides = $state<Record<string, { fingers: any[]; barres: any[] }> | null>(null);
@@ -637,6 +642,20 @@
   const MINOR_KEYS = ['Am', 'A#m', 'Bbm', 'Bm', 'Cm', 'C#m', 'Dm', 'D#m', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m'];
 
   // Song info editing functions
+  function openExportModal() {
+    showExportModal = true;
+  }
+
+  const exportSongData = $derived.by((): ExportSongData[] => {
+    if (!song || !selectedArrangement) return [];
+    // Use transposed content if transposed, otherwise raw content
+    let content = selectedArrangement.content;
+    if (transposeSemitones !== 0) {
+      content = transposeContentLocal(content, transposeSemitones);
+    }
+    return [{ song, content }];
+  });
+
   function openInfoModal() {
     if (!song) return;
     editTitle = song.title;
@@ -917,6 +936,13 @@
               </svg>
             </button>
           {/if}
+          <button class="btn btn-secondary btn-sm" onclick={openExportModal} title="Export">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </button>
           <button class="btn btn-secondary btn-sm" onclick={openInfoModal}>ℹ️</button>
           <button class="btn btn-secondary" onclick={toggleEditMode}>
             {editMode ? 'View' : 'Edit'}
@@ -1379,6 +1405,14 @@
       </div>
     </div>
   </div>
+{/if}
+
+{#if showExportModal && song && selectedArrangement}
+  <ExportModal
+    songs={exportSongData}
+    mode="single"
+    onClose={() => showExportModal = false}
+  />
 {/if}
 
 <style>

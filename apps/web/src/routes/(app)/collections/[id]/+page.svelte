@@ -2,6 +2,8 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import type { SongSet, Song } from '@gigwidget/core';
+  import ExportModal from '$lib/components/ExportModal.svelte';
+  import type { ExportSongData } from '$lib/services/exportService';
 
   let set = $state<SongSet | null>(null);
   let allSongs = $state<Song[]>([]);
@@ -19,6 +21,9 @@
   let editName = $state('');
   let editDescription = $state('');
   let savingInfo = $state(false);
+  let showExportModal = $state(false);
+  let exportSongData = $state<ExportSongData[]>([]);
+  let loadingExport = $state(false);
 
   // Collection song search/sort
   let collectionSearchQuery = $state('');
@@ -239,6 +244,20 @@
     showEditModal = true;
   }
 
+  async function handleExportCollection() {
+    if (!set || setSongs.length === 0) return;
+    loadingExport = true;
+    try {
+      const { prepareSongDataForExport } = await import('$lib/services/exportService');
+      exportSongData = await prepareSongDataForExport(set.songIds, 'as-is', set.songIds);
+      showExportModal = true;
+    } catch (err) {
+      console.error('Failed to prepare export data:', err);
+    } finally {
+      loadingExport = false;
+    }
+  }
+
   // Check if current user is the owner
   let isOwner = $derived(set?.userId === currentUserId);
 
@@ -377,6 +396,13 @@
             {/if}
           </button>
         {/if}
+        <button class="btn btn-icon" onclick={handleExportCollection} title="Export collection" disabled={setSongs.length === 0 || loadingExport}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </button>
         <button class="btn btn-primary" onclick={() => (showAddModal = true)}>+ Add Songs</button>
       </div>
     </header>
@@ -603,6 +629,15 @@
       </form>
     </div>
   </div>
+{/if}
+
+{#if showExportModal && exportSongData.length > 0 && set}
+  <ExportModal
+    songs={exportSongData}
+    mode="collection"
+    collectionName={set.name}
+    onClose={() => showExportModal = false}
+  />
 {/if}
 
 <style>

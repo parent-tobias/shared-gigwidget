@@ -3,6 +3,8 @@
   import { goto } from '$app/navigation';
   import type { Song, SongSet } from '@gigwidget/core';
   import SongList from '$lib/components/SongList.svelte';
+  import ExportModal from '$lib/components/ExportModal.svelte';
+  import type { ExportSongData } from '$lib/services/exportService';
 
   let songs = $state<Song[]>([]);
   let collections = $state<SongSet[]>([]);
@@ -22,6 +24,9 @@
   let addingToCollection = $state(false);
   let creatingCollection = $state(false);
   let newCollectionName = $state('');
+  let showExportModal = $state(false);
+  let exportSongData = $state<ExportSongData[]>([]);
+  let loadingExport = $state(false);
 
   $effect(() => {
     if (!browser || hasLoaded) return;
@@ -141,6 +146,20 @@
     }
   }
 
+  async function handleExportSelected() {
+    if (selectedIds.size === 0) return;
+    loadingExport = true;
+    try {
+      const { prepareSongDataForExport } = await import('$lib/services/exportService');
+      exportSongData = await prepareSongDataForExport(Array.from(selectedIds), 'as-is');
+      showExportModal = true;
+    } catch (err) {
+      console.error('Failed to prepare export data:', err);
+    } finally {
+      loadingExport = false;
+    }
+  }
+
   function closeModals() {
     showDeleteModal = false;
     showAddToCollectionModal = false;
@@ -186,6 +205,13 @@
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
           </svg>
           <span class="action-label">New</span>
+        </button>
+        <button class="action-btn" onclick={handleExportSelected} title="Export selected" disabled={loadingExport}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
         </button>
         <button class="action-btn danger" onclick={handleDeleteSelected} title="Delete selected">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -294,6 +320,14 @@
       </form>
     </div>
   </div>
+{/if}
+
+{#if showExportModal && exportSongData.length > 0}
+  <ExportModal
+    songs={exportSongData}
+    mode="multi-select"
+    onClose={() => showExportModal = false}
+  />
 {/if}
 
 <style>

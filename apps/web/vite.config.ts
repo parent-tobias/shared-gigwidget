@@ -13,6 +13,13 @@ export default defineConfig({
     }),
   ],
 
+  // jspdf exports only 'browser'/'node' conditions; help Vite resolve it
+  resolve: {
+    alias: {
+      jspdf: 'jspdf/dist/jspdf.es.min.js',
+    },
+  },
+
   // Build configuration
   build: {
     target: 'esnext',

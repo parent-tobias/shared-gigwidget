@@ -21,7 +21,10 @@
     "@parent-tobias/chordpro-renderer": "^2.0.0",
     "@parent-tobias/filesystem-component": "latest",
     "@supabase/supabase-js": "^2.91.0",
+    "chordsheetjs": "^13.2.1",
     "html5-qrcode": "^2.3.0",
+    "jspdf": "^4.1.0",
+    "jszip": "^3.10.1",
     "svguitar": "^2.5.0",
     "y-indexeddb": "^9.0.0",
     "yjs": "^13.6.0"
