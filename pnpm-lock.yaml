@@ -36,14 +36,14 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       '@parent-tobias/chord-component':
-        specifier: ^2.0.0
-        version: 2.0.0(lit@3.3.2)
+        specifier: ^2.0.1
+        version: 2.0.1(lit@3.3.2)
       '@parent-tobias/chordpro-editor':
         specifier: latest
         version: 1.0.0
       '@parent-tobias/chordpro-renderer':
-        specifier: ^2.0.0
-        version: 2.0.0
+        specifier: ^2.0.1
+        version: 2.0.1
       '@parent-tobias/filesystem-component':
         specifier: latest
         version: 0.1.0(lit@3.3.2)
@@ -357,8 +357,8 @@ packages:
   '@lit/reactive-element@2.1.2':
     resolution: {integrity: sha512-pbCDiVMnne1lYUIaYNN5wrwQXDtHaYtg7YEFPeW+hws6U47WeFvISGUWekPGKWOP1ygrs0ef0o1VJMk1exos5A==}
 
-  '@parent-tobias/chord-component@2.0.0':
-    resolution: {integrity: sha512-DkCiRMye/eeOh37BVjfiFEd1SoH+Miu19sVZaMh6A6qiRIwMfIMGzDRFToPoAnP2CYSm/uPPQEay1dGB7OiAOw==}
+  '@parent-tobias/chord-component@2.0.1':
+    resolution: {integrity: sha512-ZcEOLexroA/i9C3OJk9lZaDprRUVDxWSrKHIGscdN+lIMqfXdhwEDfl8vzJYBQa7b6PulrrcB1pmMo7bNAhnuw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
       lit: ^3.0.0
@@ -366,8 +366,8 @@ packages:
   '@parent-tobias/chordpro-editor@1.0.0':
     resolution: {integrity: sha512-34ucpw+aHHLo+UM2arysROA7TtEa/opMlPwxDDtvE1XDOYTFgkwqDVQHx9zhZXkmkvhRt/HX3sSOA4e3eBe7aQ==}
 
-  '@parent-tobias/chordpro-renderer@2.0.0':
-    resolution: {integrity: sha512-b1J38ezKjgQfDmFGXuR1w/4NAN24Va61kFUKuKJVOMvggIrRR022+JGofrnjD5S9LuPfy/sAm5rF3VrawLMJjA==}
+  '@parent-tobias/chordpro-renderer@2.0.1':
+    resolution: {integrity: sha512-BiPDKfgXUC4psgvdV0L4kZhImWDY1GClKd+lQkCmlBed2S0XBmFK6eLrWMVTdnTKXUjQn/Hy/sjaNSL1+mBD/g==}
 
   '@parent-tobias/filesystem-component@0.1.0':
     resolution: {integrity: sha512-taJKwmmKKsBm19RFi+Ojf9N6DokmSPeRQ06CM/mCIZ+FO707qh5dP5bPbK5wQhreyYKVXPOb7htsMfqc+Kt1pw==}
@@ -1393,7 +1393,7 @@ snapshots:
     dependencies:
       '@lit-labs/ssr-dom-shim': 1.5.1
 
-  '@parent-tobias/chord-component@2.0.0(lit@3.3.2)':
+  '@parent-tobias/chord-component@2.0.1(lit@3.3.2)':
     dependencies:
       lit: 3.3.2
       svguitar: 2.5.0
@@ -1403,9 +1403,9 @@ snapshots:
       lit: 3.3.2
       monaco-editor: 0.52.2
 
-  '@parent-tobias/chordpro-renderer@2.0.0':
+  '@parent-tobias/chordpro-renderer@2.0.1':
     dependencies:
-      '@parent-tobias/chord-component': 2.0.0(lit@3.3.2)
+      '@parent-tobias/chord-component': 2.0.1(lit@3.3.2)
       chordsheetjs: 8.6.0
       lit: 3.3.2
 
