@@ -247,7 +247,7 @@ async function renderSongToPdf(
   if (options.includeChordDiagrams) {
     const chords = extractChordsFromContent(data.content);
     if (chords.length > 0) {
-      await renderChordDiagramsAtTop(doc, chords, data.song, cursor, contentWidth, options.instrumentId);
+      await renderChordDiagramsAtTop(doc, chords, cursor, contentWidth, options.instrumentId);
     }
   }
 
@@ -361,39 +361,68 @@ async function renderSongToPdf(
 
 }
 
-interface ResolvedChordData {
-  positions: number[];
-  barres?: Array<{ fret: number; fromString: number; toString: number }>;
-  baseFret: number;
+/**
+ * Chord diagram data in SVGuitar format — same format the chord-diagram
+ * web component uses, so we get identical results to the viewer.
+ */
+interface ChordDiagramData {
+  fingers: [number, number | 'x'][];
+  barres: Array<{ fret: number; fromString: number; toString: number }>;
+  position?: number;
+  numStrings: number;
 }
 
-async function resolveChordData(
+/**
+ * Resolve chord diagram data using the chord-component library directly.
+ * This matches how the <chord-diagram> web component resolves chords,
+ * ensuring PDF output matches the in-browser viewer.
+ */
+async function resolveChordDataForExport(
   chordNames: string[],
-  song: Song,
-  instrumentId?: string,
-): Promise<Map<string, ResolvedChordData>> {
-  const resolved = new Map<string, ResolvedChordData>();
+  instrumentId: string,
+): Promise<Map<string, ChordDiagramData>> {
+  const resolved = new Map<string, ChordDiagramData>();
   try {
-    const { resolveChordForSongWithSystemChords } = await import('$lib/services/chordResolution');
-    const instrument = instrumentId || 'guitar';
+    const {
+      chordDataService,
+      getInstrument,
+      chordOnInstrument,
+      chordToNotes,
+    } = await import('@parent-tobias/chord-component');
 
-    await Promise.all(
-      chordNames.map(async (chordName) => {
-        const result = await resolveChordForSongWithSystemChords({
-          userId: song.userId,
-          chordName,
-          instrumentId: instrument,
-          songId: song.id,
+    const instrument = getInstrument(instrumentId);
+    if (!instrument) return resolved;
+
+    const numStrings = instrument.strings.length;
+    const chordResult = await chordDataService.getChordData(instrumentId);
+    const chordDefaults = chordResult.data;
+
+    for (const chordName of chordNames) {
+      // Use default chord data if available (same as chord-diagram component)
+      if (chordDefaults[chordName]) {
+        const def = chordDefaults[chordName];
+        resolved.set(chordName, {
+          fingers: def.fingers,
+          barres: def.barres || [],
+          position: def.position,
+          numStrings,
         });
-        if (result) {
-          resolved.set(chordName, {
-            positions: result.positions,
-            barres: result.barres,
-            baseFret: result.baseFret,
-          });
+      } else {
+        // Dynamic generation fallback (same as chord-diagram component)
+        const chordFinder = chordOnInstrument(instrument);
+        const chordObject = chordToNotes(chordName);
+        if (chordObject?.notes?.length > 0) {
+          const fingers = chordFinder(chordObject);
+          if (fingers && fingers.length > 0) {
+            resolved.set(chordName, {
+              fingers,
+              barres: [],
+              numStrings,
+            });
+          }
         }
-      }),
-    );
+      }
+    }
   } catch (err) {
     console.error('Failed to resolve chords for export:', err);
   }
@@ -403,12 +432,11 @@ async function resolveChordData(
 async function renderChordDiagramsAtTop(
   doc: InstanceType<typeof import('jspdf').jsPDF>,
   chordNames: string[],
-  song: Song,
   cursor: PdfCursor,
   contentWidth: number,
   instrumentId?: string,
 ): Promise<void> {
-  const chordData = await resolveChordData(chordNames, song, instrumentId);
+  const chordData = await resolveChordDataForExport(chordNames, instrumentId || 'guitar');
 
   // Calculate how many diagrams fit per row
   const diagramTotalW = DIAGRAM_W + DIAGRAM_GAP;
@@ -455,13 +483,13 @@ function drawChordGrid(
   y: number,
   w: number,
   h: number,
-  data?: ResolvedChordData,
+  data?: ChordDiagramData,
 ): void {
-  const numStrings = data ? data.positions.length : 4;
+  const numStrings = data?.numStrings ?? 4;
   const frets = 4;
   const stringSpacing = w / (numStrings - 1);
   const fretSpacing = h / frets;
-  const baseFret = data?.baseFret ?? 1;
+  const baseFret = data?.position ?? 1;
   const isOpenPosition = baseFret <= 1;
 
   // Reserve space above grid for open/muted markers
@@ -477,7 +505,6 @@ function drawChordGrid(
   } else {
     doc.setLineWidth(0.5);
     doc.line(x, gridY, x + w, gridY);
-    // Fret number label
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.text(`${baseFret}`, x - 8, gridY + fretSpacing / 2 + 2);
@@ -501,15 +528,19 @@ function drawChordGrid(
 
   const dotRadius = Math.min(stringSpacing, fretSpacing) * 0.28;
 
+  // SVGuitar convention: string 1 = rightmost (high), string N = leftmost (bass)
+  // Grid convention: x position 0 = leftmost
+  // So SVGuitar string S maps to x + (numStrings - S) * stringSpacing
+  const stringX = (s: number) => x + (numStrings - s) * stringSpacing;
+
   // Draw barres first (behind dots)
   if (data.barres) {
     for (const barre of data.barres) {
       const relativeFret = barre.fret - baseFret + 1;
       if (relativeFret < 1 || relativeFret > frets) continue;
       const barreY = gridY + (relativeFret - 0.5) * fretSpacing;
-      // fromString/toString are 1-indexed from low string (left)
-      const fromX = x + (barre.fromString - 1) * stringSpacing;
-      const toX = x + (barre.toString - 1) * stringSpacing;
+      const fromX = stringX(barre.fromString);
+      const toX = stringX(barre.toString);
       const leftX = Math.min(fromX, toX);
       const rightX = Math.max(fromX, toX);
       doc.setFillColor(40, 40, 40);
@@ -517,12 +548,15 @@ function drawChordGrid(
     }
   }
 
-  // Draw finger dots, open strings, and muted strings
-  for (let s = 0; s < data.positions.length; s++) {
-    const fret = data.positions[s];
-    const sx = x + s * stringSpacing;
+  // Track which strings are mentioned in fingers (unmentioned = open)
+  const mentionedStrings = new Set<number>();
 
-    if (fret === -1) {
+  // Draw finger dots and muted strings
+  for (const [string, fret] of data.fingers) {
+    mentionedStrings.add(string);
+    const sx = stringX(string);
+
+    if (fret === 'x' || fret === -1) {
       // Muted string: X above nut
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
@@ -540,6 +574,25 @@ function drawChordGrid(
         doc.setFillColor(40, 40, 40);
         doc.circle(sx, dotY, dotRadius, 'F');
       }
+    }
+  }
+
+  // Draw open circles for strings not mentioned in fingers and not covered by barres
+  const barreStrings = new Set<number>();
+  if (data.barres) {
+    for (const barre of data.barres) {
+      const lo = Math.min(barre.fromString, barre.toString);
+      const hi = Math.max(barre.fromString, barre.toString);
+      for (let s = lo; s <= hi; s++) barreStrings.add(s);
+    }
+  }
+
+  for (let s = 1; s <= numStrings; s++) {
+    if (!mentionedStrings.has(s) && !barreStrings.has(s)) {
+      const sx = stringX(s);
+      doc.setDrawColor(80, 80, 80);
+      doc.setLineWidth(0.8);
+      doc.circle(sx, y + markerAreaH - 4, 2.5, 'S');
     }
   }
 }
