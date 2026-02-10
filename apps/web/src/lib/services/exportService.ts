@@ -143,8 +143,7 @@ const PAGE_H = 792;
 const MARGIN_L = 40;
 const MARGIN_T = 50;
 const MARGIN_B = 40;
-const MARGIN_R_NORMAL = 40;
-const MARGIN_R_DIAGRAMS = 130;
+const MARGIN_R = 40;
 
 const TITLE_SIZE = 16;
 const ARTIST_SIZE = 11;
@@ -216,9 +215,8 @@ async function renderSongToPdf(
   options: ExportOptions,
   isFirstPage: boolean,
 ): Promise<void> {
-  const marginRight = options.includeChordDiagrams ? MARGIN_R_DIAGRAMS : MARGIN_R_NORMAL;
-  const contentWidth = PAGE_W - MARGIN_L - marginRight;
-  const cursor: PdfCursor = { y: MARGIN_T, doc, marginRight };
+  const contentWidth = PAGE_W - MARGIN_L - MARGIN_R;
+  const cursor: PdfCursor = { y: MARGIN_T, doc, marginRight: MARGIN_R };
 
   // --- Metadata header ---
   const { song } = data;
@@ -243,6 +241,14 @@ async function renderSongToPdf(
     doc.setFontSize(META_SIZE);
     doc.text(metaParts.join('  |  '), MARGIN_L, cursor.y);
     cursor.y += META_SIZE + 2;
+  }
+
+  // --- Chord diagrams (at top, wrapping rows) ---
+  if (options.includeChordDiagrams) {
+    const chords = extractChordsFromContent(data.content);
+    if (chords.length > 0) {
+      await renderChordDiagramsAtTop(doc, chords, data.song, cursor, contentWidth, options.instrumentId);
+    }
   }
 
   cursor.y += HEADER_BOTTOM_GAP;
@@ -353,13 +359,6 @@ async function renderSongToPdf(
     }
   }
 
-  // --- Chord diagrams (right margin) ---
-  if (options.includeChordDiagrams) {
-    const chords = extractChordsFromContent(data.content);
-    if (chords.length > 0) {
-      await renderChordDiagrams(doc, chords, data.song, options.instrumentId);
-    }
-  }
 }
 
 interface ResolvedChordData {
@@ -401,34 +400,29 @@ async function resolveChordData(
   return resolved;
 }
 
-async function renderChordDiagrams(
+async function renderChordDiagramsAtTop(
   doc: InstanceType<typeof import('jspdf').jsPDF>,
   chordNames: string[],
   song: Song,
+  cursor: PdfCursor,
+  contentWidth: number,
   instrumentId?: string,
 ): Promise<void> {
-  const diagramX = PAGE_W - MARGIN_R_DIAGRAMS + 10;
-  let diagramY = MARGIN_T;
-  let currentPage = 1;
-  const totalPages = doc.getNumberOfPages();
-
-  // Switch to first page of this song for diagrams
-  doc.setPage(totalPages - doc.getNumberOfPages() + 1);
-
-  // Resolve all chords up front
   const chordData = await resolveChordData(chordNames, song, instrumentId);
 
+  // Calculate how many diagrams fit per row
+  const diagramTotalW = DIAGRAM_W + DIAGRAM_GAP;
+  const cols = Math.max(1, Math.floor((contentWidth + DIAGRAM_GAP) / diagramTotalW));
+  const rowH = DIAGRAM_H + DIAGRAM_LABEL_SIZE + DIAGRAM_GAP;
+
+  let col = 0;
   for (const chordName of chordNames) {
-    // Check if we need to move to next page for diagrams
-    if (diagramY + DIAGRAM_H + DIAGRAM_LABEL_SIZE > PAGE_H - MARGIN_B) {
-      if (currentPage < totalPages) {
-        currentPage++;
-        doc.setPage(currentPage);
-        diagramY = MARGIN_T;
-      } else {
-        break;
-      }
+    if (col === 0) {
+      checkPageBreak(cursor, rowH);
     }
+
+    const diagramX = MARGIN_L + col * diagramTotalW;
+    let diagramY = cursor.y;
 
     // Draw chord label
     doc.setFont('helvetica', 'bold');
@@ -442,11 +436,17 @@ async function renderChordDiagrams(
 
     drawChordGrid(doc, diagramX, diagramY, gridW, gridH, data);
 
-    diagramY += DIAGRAM_H - DIAGRAM_LABEL_SIZE + DIAGRAM_GAP;
+    col++;
+    if (col >= cols) {
+      col = 0;
+      cursor.y += rowH;
+    }
   }
 
-  // Restore to last page
-  doc.setPage(totalPages);
+  // Advance past the last partial row
+  if (col > 0) {
+    cursor.y += rowH;
+  }
 }
 
 function drawChordGrid(
