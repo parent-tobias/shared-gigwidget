@@ -9,6 +9,8 @@
 
   $effect(() => {
     if (!browser) return;
+    // Ensure dark theme on shared pages (no AppShell to set data-theme)
+    document.documentElement.setAttribute('data-theme', 'dark');
     const setId = $page.params.id;
     if (!setId) return;
 
