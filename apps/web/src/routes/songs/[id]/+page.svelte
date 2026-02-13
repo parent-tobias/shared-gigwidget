@@ -8,6 +8,7 @@
   import { getPublicSongById, saveSongToSupabase, deleteSavedSongReference } from '$lib/stores/supabaseStore';
   import ChordSelectionModal from '$lib/components/ChordSelectionModal.svelte';
   import ExportModal from '$lib/components/ExportModal.svelte';
+  import ShareModal from '$lib/components/ShareModal.svelte';
   import type { ExportSongData } from '$lib/services/exportService';
 
   let song = $state<Song | null>(null);
@@ -70,6 +71,9 @@
 
   // Export state
   let showExportModal = $state(false);
+
+  // Share state
+  let showShareModal = $state(false);
 
   // Renderer chord overrides (v2 JS-only property)
   let rendererChordOverrides = $state<Record<string, { fingers: any[]; barres: any[] }> | null>(null);
@@ -936,6 +940,15 @@
               </svg>
             </button>
           {/if}
+          <button class="btn btn-secondary btn-sm" onclick={() => showShareModal = true} title="Share">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"/>
+              <circle cx="6" cy="12" r="3"/>
+              <circle cx="18" cy="19" r="3"/>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+          </button>
           <button class="btn btn-secondary btn-sm" onclick={openExportModal} title="Export">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1412,6 +1425,17 @@
     songs={exportSongData}
     mode="single"
     onClose={() => showExportModal = false}
+  />
+{/if}
+
+{#if showShareModal && song}
+  <ShareModal
+    type="song"
+    id={song.id}
+    title={song.title}
+    visibility={song.visibility}
+    onClose={() => showShareModal = false}
+    onMadePublic={() => { song = { ...song!, visibility: 'public' }; }}
   />
 {/if}
 

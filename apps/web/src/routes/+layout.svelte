@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { browser } from '$app/environment';
+  import { page } from '$app/stores';
   import SessionOverlay from '$lib/components/SessionOverlay.svelte';
   import AppShell from '$lib/components/AppShell.svelte';
   import Toast from '$lib/components/Toast.svelte';
@@ -8,6 +9,8 @@
   import { initializeAuth } from '$lib/stores/authStore.svelte';
   import { initializeNavigation } from '$lib/stores/navigationStore.svelte';
   import { initializeTheme } from '$lib/stores/themeStore.svelte';
+
+  const isSharedRoute = $derived($page.url.pathname.startsWith('/shared/'));
 
   let { children } = $props();
 
@@ -134,6 +137,9 @@
     <div class="spinner"></div>
     <p>Loading Gigwidget...</p>
   </div>
+{:else if isSharedRoute}
+  {@render children()}
+  <Toast />
 {:else}
   <AppShell>
     {@render children()}

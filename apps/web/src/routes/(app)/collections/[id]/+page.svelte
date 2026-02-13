@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import type { SongSet, Song } from '@gigwidget/core';
   import ExportModal from '$lib/components/ExportModal.svelte';
+  import ShareModal from '$lib/components/ShareModal.svelte';
   import type { ExportSongData } from '$lib/services/exportService';
 
   let set = $state<SongSet | null>(null);
@@ -24,6 +25,7 @@
   let showExportModal = $state(false);
   let exportSongData = $state<ExportSongData[]>([]);
   let loadingExport = $state(false);
+  let showShareModal = $state(false);
 
   // Collection song search/sort
   let collectionSearchQuery = $state('');
@@ -396,6 +398,15 @@
             {/if}
           </button>
         {/if}
+        <button class="btn btn-icon" onclick={() => showShareModal = true} title="Share">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="18" cy="5" r="3"/>
+            <circle cx="6" cy="12" r="3"/>
+            <circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+        </button>
         <button class="btn btn-icon" onclick={handleExportCollection} title="Export collection" disabled={setSongs.length === 0 || loadingExport}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -637,6 +648,23 @@
     mode="collection"
     collectionName={set.name}
     onClose={() => showExportModal = false}
+  />
+{/if}
+
+{#if showShareModal && set}
+  <ShareModal
+    type="collection"
+    id={set.id}
+    title={set.name}
+    visibility={set.visibility}
+    onClose={() => showShareModal = false}
+    onMadePublic={isOwner ? async () => {
+      const { SongSetRepository } = await import('@gigwidget/db');
+      await SongSetRepository.update(set.id, { visibility: 'public' });
+      set = { ...set, visibility: 'public' };
+      const { syncSongSetToCloud } = await import('$lib/stores/syncStore.svelte');
+      await syncSongSetToCloud(set);
+    } : undefined}
   />
 {/if}
 
