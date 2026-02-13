@@ -8,25 +8,57 @@
     id: string;
     title: string;
     visibility: Visibility;
+    sourceId?: string; // Original public song ID (for saved/forked songs)
     onClose: () => void;
     onMadePublic?: () => void;
   }
 
-  let { type, id, title, visibility, onClose, onMadePublic }: Props = $props();
+  let { type, id, title, visibility, sourceId, onClose, onMadePublic }: Props = $props();
 
   let makingPublic = $state(false);
   let currentVisibility = $state(visibility);
   let canNativeShare = $state(false);
+  let syncing = $state(false);
+  let syncDone = $state(false);
+
+  // For saved/forked songs, share the original source; for originals, share this song's ID
+  const shareId = $derived(sourceId ?? id);
 
   $effect(() => {
     if (browser) {
       canNativeShare = typeof navigator.share === 'function';
+      // For original songs (no sourceId), ensure synced to Supabase before sharing
+      if (currentVisibility === 'public' && !sourceId && !syncDone) {
+        ensureSynced();
+      }
     }
   });
 
+  async function ensureSynced() {
+    syncing = true;
+    try {
+      if (type === 'song') {
+        const { SongRepository } = await import('@gigwidget/db');
+        const { syncSongToCloud } = await import('$lib/stores/syncStore.svelte');
+        const song = await SongRepository.getById(id);
+        if (song) await syncSongToCloud(song);
+      } else {
+        const { SongSetRepository } = await import('@gigwidget/db');
+        const { syncSongSetToCloud } = await import('$lib/stores/syncStore.svelte');
+        const set = await SongSetRepository.getById(id);
+        if (set) await syncSongSetToCloud(set);
+      }
+    } catch (err) {
+      console.error('Failed to sync before sharing:', err);
+    } finally {
+      syncing = false;
+      syncDone = true;
+    }
+  }
+
   const shareUrl = $derived(
     browser
-      ? `${window.location.origin}/shared/${type === 'song' ? 'song' : 'collection'}/${id}`
+      ? `${window.location.origin}/shared/${type === 'song' ? 'song' : 'collection'}/${shareId}`
       : ''
   );
 

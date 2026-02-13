@@ -1434,6 +1434,7 @@
     id={song.id}
     title={song.title}
     visibility={song.visibility}
+    sourceId={song.sourceId}
     onClose={() => showShareModal = false}
     onMadePublic={() => { song = { ...song!, visibility: 'public' }; }}
   />

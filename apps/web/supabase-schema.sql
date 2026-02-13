@@ -94,6 +94,12 @@ CREATE POLICY "Users can manage their own sets"
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+-- Anyone can read public song sets
+CREATE POLICY "Anyone can read public song sets"
+  ON song_sets
+  FOR SELECT
+  USING (visibility = 'public');
+
 CREATE TRIGGER update_song_sets_updated_at
   BEFORE UPDATE ON song_sets
   FOR EACH ROW
