@@ -73,7 +73,7 @@
 
       <div class="song-list">
         {#each orderedSongs as song, i}
-          <a href="/shared/song/{song.id}" class="song-item">
+          <a href="/shared/song/{song.id}?from=collection&collectionId={collection.id}&collectionName={encodeURIComponent(collection.name)}" class="song-item">
             <span class="song-number">{i + 1}</span>
             <div class="song-info">
               <span class="song-title">{song.title}</span>

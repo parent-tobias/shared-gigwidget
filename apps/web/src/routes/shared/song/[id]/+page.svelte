@@ -60,6 +60,11 @@
     song?.content ? extractInstrumentFromContent(song.content) : 'guitar'
   );
 
+  // Back-to-collection context from query params
+  const fromCollection = $derived($page.url.searchParams.get('from') === 'collection');
+  const collectionId = $derived($page.url.searchParams.get('collectionId'));
+  const collectionName = $derived($page.url.searchParams.get('collectionName'));
+
   $effect(() => {
     if (!browser) return;
     const songId = $page.params.id;
@@ -135,6 +140,14 @@
   {:else if song}
     <div class="song-container">
       <div class="song-meta">
+        {#if fromCollection && collectionId}
+          <a href="/shared/collection/{collectionId}" class="back-link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+            {collectionName || 'Back to collection'}
+          </a>
+        {/if}
         <h1 class="song-title">{song.title}</h1>
         {#if song.artist}
           <p class="song-artist">{song.artist}</p>
@@ -272,6 +285,20 @@
 
   .song-meta {
     margin-bottom: 1rem;
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    margin-bottom: 0.5rem;
+  }
+
+  .back-link:hover {
+    color: var(--color-primary);
   }
 
   .song-title {
