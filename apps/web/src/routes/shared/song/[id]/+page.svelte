@@ -195,7 +195,6 @@
         <div class="renderer-wrapper" class:renderer-light={rendererTheme === 'light'}>
           <chordpro-renderer
             content={displayContent}
-            theme={rendererTheme === 'dark' ? 'chordpro-dark' : 'chordpro-light'}
             chord-position="top"
             instrument={effectiveInstrument}
           ></chordpro-renderer>
@@ -416,7 +415,7 @@
     color: #1a1a1a;
   }
 
-  .renderer-wrapper.renderer-light chordpro-renderer {
+  .renderer-wrapper.renderer-light :global(chordpro-renderer) {
     --component-bg: #ffffff;
     --component-text: #1a1a1a;
     --viewer-bg: #ffffff;
@@ -427,7 +426,7 @@
     --chord-charts-border: #dddddd;
   }
 
-  .renderer-wrapper:not(.renderer-light) chordpro-renderer {
+  .renderer-wrapper:not(.renderer-light) :global(chordpro-renderer) {
     --component-bg: var(--color-bg-secondary);
     --component-text: var(--color-text);
     --viewer-bg: var(--color-bg-secondary);
