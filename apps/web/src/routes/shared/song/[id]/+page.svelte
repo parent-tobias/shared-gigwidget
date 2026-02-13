@@ -197,12 +197,11 @@
             </button>
           </div>
         </div>
-        <div class="renderer-wrapper" class:renderer-light={rendererTheme === 'light'}>
+        <div class="renderer-wrapper" class:renderer-light={rendererTheme === 'light'} style={rendererStyle}>
           <chordpro-renderer
             content={displayContent}
             chord-position="top"
             instrument={effectiveInstrument}
-            style={rendererStyle}
           ></chordpro-renderer>
         </div>
       {:else if song.content}
