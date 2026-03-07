@@ -127,6 +127,12 @@
       return;
     }
 
+    // Strip URL if someone pasted a full join link
+    const hashIndex = data.indexOf('/join#');
+    if (hashIndex !== -1) {
+      data = data.slice(hashIndex + '/join#'.length);
+    }
+
     try {
       // Try to decode - the data might be base64 encoded or raw JSON
       let payload: QRSessionPayload;
