@@ -153,8 +153,9 @@
     try {
       const { encodeSessionPayload } = await import('@gigwidget/sync');
       const code = encodeSessionPayload(session.qrPayload);
-      await navigator.clipboard.writeText(code);
-      alert('Session code copied to clipboard!');
+      const url = `${window.location.origin}/join#${code}`;
+      await navigator.clipboard.writeText(url);
+      alert('Session link copied to clipboard!');
     } catch (err) {
       console.error('Failed to copy session code:', err);
     }
