@@ -42,8 +42,8 @@ importers:
         specifier: latest
         version: 1.0.0
       '@parent-tobias/chordpro-renderer':
-        specifier: ^2.1.3
-        version: 2.1.3
+        specifier: ^2.1.4
+        version: 2.1.4
       '@parent-tobias/filesystem-component':
         specifier: latest
         version: 0.1.0(lit@3.3.2)
@@ -366,8 +366,8 @@ packages:
   '@parent-tobias/chordpro-editor@1.0.0':
     resolution: {integrity: sha512-34ucpw+aHHLo+UM2arysROA7TtEa/opMlPwxDDtvE1XDOYTFgkwqDVQHx9zhZXkmkvhRt/HX3sSOA4e3eBe7aQ==}
 
-  '@parent-tobias/chordpro-renderer@2.1.3':
-    resolution: {integrity: sha512-IfPhUZmSlpgi3ePJHuZpTgHun/cV1regvItRjXo3KaTaAJy4F1Xl0pa5CwTym1B5XR+k5XC5Oezj3S026lb//g==}
+  '@parent-tobias/chordpro-renderer@2.1.4':
+    resolution: {integrity: sha512-+YGo8n8QkKt+1NKrjfX7N/lOqsTCPa3317RcEx+JdgWcDbDYWpzJ/Bg6eetocJCKg35gSIrnGAatsVWHmOYW4g==}
 
   '@parent-tobias/filesystem-component@0.1.0':
     resolution: {integrity: sha512-taJKwmmKKsBm19RFi+Ojf9N6DokmSPeRQ06CM/mCIZ+FO707qh5dP5bPbK5wQhreyYKVXPOb7htsMfqc+Kt1pw==}
@@ -1403,7 +1403,7 @@ snapshots:
       lit: 3.3.2
       monaco-editor: 0.52.2
 
-  '@parent-tobias/chordpro-renderer@2.1.3':
+  '@parent-tobias/chordpro-renderer@2.1.4':
     dependencies:
       '@parent-tobias/chord-component': 2.1.2(lit@3.3.2)
       chordsheetjs: 8.6.0
