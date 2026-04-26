@@ -157,7 +157,7 @@ CREATE TRIGGER on_auth_user_created
 CREATE TABLE IF NOT EXISTS user_preferences (
   user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   default_instrument TEXT, -- Renderer instrument name (e.g., "Standard Guitar") or custom instrument ID
-  chord_list_position TEXT DEFAULT 'top' CHECK (chord_list_position IN ('top', 'right', 'bottom')),
+  chord_list_position TEXT DEFAULT 'top' CHECK (chord_list_position IN ('top', 'right', 'bottom', 'inline')),
   theme TEXT DEFAULT 'auto' CHECK (theme IN ('light', 'dark', 'auto')),
   compact_view BOOLEAN DEFAULT FALSE,
   auto_save_interval INTEGER DEFAULT 5000,
