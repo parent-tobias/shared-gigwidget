@@ -40,7 +40,7 @@ export interface SupabasePreferences {
   user_id: string;
   /** Renderer instrument name (e.g., "Standard Guitar") or custom instrument ID */
   default_instrument: string | null;
-  chord_list_position: 'top' | 'right' | 'bottom';
+  chord_list_position: 'top' | 'right' | 'bottom' | 'inline';
   theme: 'light' | 'dark' | 'auto';
   compact_view: boolean;
   auto_save_interval: number;

@@ -65,7 +65,7 @@ export interface UserPreferences {
   defaultTuning?: string;
   autoSaveInterval: number; // ms
   snapshotRetention: number; // count
-  chordListPosition?: 'top' | 'right' | 'bottom'; // Position of chord diagrams in renderer
+  chordListPosition?: 'top' | 'right' | 'bottom' | 'inline'; // Position of chord diagrams in renderer
   theme?: 'light' | 'dark' | 'auto'; // Color theme preference
   compactView?: boolean; // Use compact UI layout
 }

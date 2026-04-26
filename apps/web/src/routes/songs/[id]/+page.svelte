@@ -22,7 +22,7 @@
   let hasLoaded = false;
   let editorReady = $state(false);
   let rendererReady = $state(false);
-  let chordListPosition = $state<'top' | 'right' | 'bottom'>('top');
+  let chordListPosition = $state<'top' | 'right' | 'bottom' | 'inline'>('top');
   let theme = $state<'light' | 'dark' | 'auto'>('auto');
   let compactView = $state(false);
   let defaultInstrument = $state<string>('guitar');

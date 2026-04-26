@@ -968,7 +968,7 @@ export async function syncProfileToCloud(profile: {
  */
 export async function syncPreferencesToCloud(prefs: {
   defaultInstrument?: string;
-  chordListPosition: 'top' | 'right' | 'bottom';
+  chordListPosition: 'top' | 'right' | 'bottom' | 'inline';
   theme: 'light' | 'dark' | 'auto';
   compactView: boolean;
   autoSaveInterval?: number;

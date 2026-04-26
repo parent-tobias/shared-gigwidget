@@ -33,7 +33,7 @@
 
   // Preferences state
   let defaultInstrument = $state<string>('guitar');
-  let chordListPosition = $state<'top' | 'right' | 'bottom'>('top');
+  let chordListPosition = $state<'top' | 'right' | 'bottom' | 'inline'>('top');
   let theme = $state<'light' | 'dark' | 'auto'>('auto');
   let compactView = $state(false);
   let loading = $state(true);
@@ -182,6 +182,7 @@
           <option value="top">Top</option>
           <option value="right">Right</option>
           <option value="bottom">Bottom</option>
+          <option value="inline">Inline (above each chord)</option>
         </select>
         <p class="form-help">Where chord diagrams appear when viewing songs.</p>
       </div>
