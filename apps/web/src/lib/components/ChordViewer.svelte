@@ -346,5 +346,9 @@
     display: block;
     width: 80px;
     height: 100px;
+    --chord-diagram-color: var(--color-text, #eaeaea);
+    --chord-bg: var(--color-surface, #0f3460);
+    --chord-border: var(--color-border, #2a2a4e);
+    --chord-name-color: var(--color-text, #eaeaea);
   }
 </style>

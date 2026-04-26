@@ -1685,6 +1685,7 @@
     --header-color: #333333;
     --chord-charts-bg: #f5f5f5;
     --chord-charts-border: #dddddd;
+    --chord-diagram-color: #1a1a1a;
   }
 
   /* Dark theme for renderer (explicit for consistency) */
@@ -1697,6 +1698,7 @@
     --header-color: #ffffff;
     --chord-charts-bg: var(--color-surface);
     --chord-charts-border: var(--color-border);
+    --chord-diagram-color: #e0e0e0;
   }
 
   .editor-actions {

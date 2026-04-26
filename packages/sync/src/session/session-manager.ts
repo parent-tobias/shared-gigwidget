@@ -95,7 +95,7 @@ export class SessionManager extends Observable {
     super();
     this.user = options.user;
     this.signalingServers = options.signalingServers ?? DEFAULT_SIGNALING_SERVERS;
-    this.defaultExpiryMs = options.defaultExpiryMs ?? 4 * 60 * 60 * 1000; // 4 hours
+    this.defaultExpiryMs = options.defaultExpiryMs ?? 10 * 60 * 60 * 1000; // 10 hours
 
     // Create avatar thumbnail for awareness sharing
     this.createAvatarThumbnail();
@@ -881,6 +881,41 @@ export class SessionManager extends Observable {
     if (this.bootstrapHost && dataChannel.label === BOOTSTRAP_CHANNEL_LABEL) {
       this.bootstrapHost.handleDataChannel(dataChannel, peerId);
     }
+  }
+
+  /**
+   * Resume hosting an existing session after a crash or reconnect.
+   * Reconnects to the same y-webrtc room using the stored QR payload,
+   * so joiners who are still connected will re-discover the host.
+   */
+  async resumeSession(
+    payload: QRSessionPayload,
+    songManifest: SongManifestEntry[],
+    options: { password?: string } = {}
+  ): Promise<QRSessionPayload> {
+    await this.leaveSession();
+
+    const session: Session = {
+      id: payload.sessionId,
+      hostId: payload.hostId,
+      type: payload.type,
+      connectionInfo: payload.connectionInfo,
+      libraryScope: 'full',
+      createdAt: new Date(payload.createdAt),
+      expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : undefined,
+    };
+
+    this.sessionDoc = new Y.Doc({ guid: `session-${session.id}` });
+    this.storedManifest = songManifest;
+    this.activeSession = session;
+
+    if (session.type === 'webrtc') {
+      await this.initWebRTCHost(session, options.password);
+    }
+
+    const resumedPayload: QRSessionPayload = { ...payload, libraryManifest: [] };
+    this.emit('session-created', [{ session, qrPayload: resumedPayload, songManifest }]);
+    return resumedPayload;
   }
 
   destroy(): void {

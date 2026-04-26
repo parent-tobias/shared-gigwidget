@@ -49,6 +49,125 @@ let sessionManager: any = null;
 let currentUser: User | null = null;
 let bootstrapContext: BootstrapContext | null = null;
 
+// Session lifecycle timers
+const HOST_ABSENCE_TIMEOUT_MS = 30_000;
+let expiryTimer: ReturnType<typeof setInterval> | null = null;
+let hostAbsenceTimer: ReturnType<typeof setTimeout> | null = null;
+let pagehideHandler: (() => void) | null = null;
+let hasEverHadPeers = false;
+
+function startExpiryTimer(): void {
+  stopExpiryTimer();
+  expiryTimer = setInterval(async () => {
+    if (qrPayload?.expiresAt && Date.now() > qrPayload.expiresAt) {
+      stopExpiryTimer();
+      const { toast } = await import('./toastStore.svelte');
+      toast.warning(
+        isHosting ? 'Your hosting session has expired and has been ended.' : 'This session has expired.',
+        6000
+      );
+      await leaveSession();
+    }
+  }, 60_000);
+}
+
+function stopExpiryTimer(): void {
+  if (expiryTimer !== null) {
+    clearInterval(expiryTimer);
+    expiryTimer = null;
+  }
+}
+
+function startHostAbsenceTimer(): void {
+  if (isHosting || hostAbsenceTimer !== null) return;
+  hostAbsenceTimer = setTimeout(async () => {
+    hostAbsenceTimer = null;
+    if (!isHosting && isActive) {
+      const { toast } = await import('./toastStore.svelte');
+      toast.warning('Host has disconnected.', 5000);
+      await leaveSession();
+    }
+  }, HOST_ABSENCE_TIMEOUT_MS);
+}
+
+function stopHostAbsenceTimer(): void {
+  if (hostAbsenceTimer !== null) {
+    clearTimeout(hostAbsenceTimer);
+    hostAbsenceTimer = null;
+  }
+}
+
+function registerPagehideHandler(): void {
+  if (typeof window === 'undefined') return;
+  unregisterPagehideHandler();
+  pagehideHandler = () => {
+    if (sessionManager?.isHosting) {
+      // Best-effort: Yjs write is synchronous even if the await never resolves
+      sessionManager.leaveSession();
+    }
+  };
+  window.addEventListener('pagehide', pagehideHandler);
+}
+
+function unregisterPagehideHandler(): void {
+  if (pagehideHandler && typeof window !== 'undefined') {
+    window.removeEventListener('pagehide', pagehideHandler);
+    pagehideHandler = null;
+  }
+}
+
+// ============================================================================
+// Session recovery (localStorage)
+// ============================================================================
+
+export interface StoredHostSession {
+  userId: string;
+  payload: QRSessionPayload;
+  shareAll: boolean;
+  collectionId?: string;
+  collectionName?: string;
+}
+
+const STORAGE_KEY = 'gigwidget:host-session';
+let pendingSessionOptions: { shareAll: boolean; collectionId?: string; collectionName?: string } | null = null;
+
+function saveHostSession(payload: QRSessionPayload): void {
+  if (!pendingSessionOptions || !currentUser) return;
+  try {
+    const stored: StoredHostSession = { userId: currentUser.id, payload, ...pendingSessionOptions };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  } catch (err) {
+    console.warn('[Session] Failed to save session to storage:', err);
+  } finally {
+    pendingSessionOptions = null;
+  }
+}
+
+function clearStoredSession(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (err) {
+    console.warn('[Session] Failed to clear session from storage:', err);
+  }
+}
+
+export function getStoredHostSession(userId: string): StoredHostSession | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as StoredHostSession;
+    if (stored.userId !== userId) return null;
+    if (stored.payload.expiresAt && Date.now() > stored.payload.expiresAt) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return stored;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Initialize the session manager with the current user
  */
@@ -115,6 +234,10 @@ async function initSessionManager(user: User): Promise<void> {
           return null;
         }
       });
+
+      saveHostSession(payload);
+      startExpiryTimer();
+      registerPagehideHandler();
     });
 
     sessionManager.on('session-joined', ({ session }: any) => {
@@ -133,6 +256,7 @@ async function initSessionManager(user: User): Promise<void> {
         expiresAt: session.expiresAt?.getTime(),
       };
       console.log('[Session] Joined session, waiting for manifest over WebRTC...');
+      startExpiryTimer();
     });
 
     // Manifest received over WebRTC (for joiners)
@@ -155,6 +279,10 @@ async function initSessionManager(user: User): Promise<void> {
       qrPayload = null;
       qrDataUrl = null;
       // Don't clear wasEjected here - let it persist so UI can show message
+      stopExpiryTimer();
+      stopHostAbsenceTimer();
+      unregisterPagehideHandler();
+      hasEverHadPeers = false;
     });
 
     sessionManager.on('session-ended-by-host', async () => {
@@ -169,6 +297,12 @@ async function initSessionManager(user: User): Promise<void> {
 
     sessionManager.on('peers-changed', ({ count }: any) => {
       peerCount = count;
+      if (count > 0) hasEverHadPeers = true;
+      if (!isHosting && isActive && hasEverHadPeers && count === 0) {
+        startHostAbsenceTimer();
+      } else if (count > 0) {
+        stopHostAbsenceTimer();
+      }
       console.log('Peers changed:', count);
     });
 
@@ -231,6 +365,11 @@ async function startSession(
   error = null;
   wasEjected = false;
   status = 'connecting';
+  pendingSessionOptions = {
+    shareAll: options.shareAll !== false,
+    collectionId: options.collectionId,
+    collectionName: options.collectionName,
+  };
 
   try {
     // Songs are passed in already filtered by the caller
@@ -286,11 +425,62 @@ async function joinSession(user: User, payload: QRSessionPayload): Promise<void>
  * Leave the current session
  */
 async function leaveSession(): Promise<void> {
+  clearStoredSession(); // intentional leave — clear recovery data
   if (sessionManager) {
     await sessionManager.leaveSession();
   }
   wasEjected = false;
   bootstrapContext = null;
+}
+
+/**
+ * Resume hosting a previous session after a crash or reconnect.
+ * Pass songs already filtered to match the original shareAll/collection scope.
+ */
+async function resumeSession(user: User, songs: Song[]): Promise<void> {
+  await initSessionManager(user);
+  if (!sessionManager) {
+    error = 'Session manager not ready';
+    return;
+  }
+
+  const stored = getStoredHostSession(user.id);
+  if (!stored) {
+    error = 'No stored session to resume';
+    return;
+  }
+
+  error = null;
+  wasEjected = false;
+  status = 'connecting';
+  pendingSessionOptions = {
+    shareAll: stored.shareAll,
+    collectionId: stored.collectionId,
+    collectionName: stored.collectionName,
+  };
+
+  try {
+    const manifest: SongManifestEntry[] = songs.map((s) => ({
+      id: s.id,
+      title: s.title,
+      artist: s.artist,
+      key: s.key,
+      tempo: s.tempo,
+      tags: s.tags,
+      instruments: [],
+    }));
+
+    const password =
+      stored.payload.connectionInfo.type === 'webrtc'
+        ? stored.payload.connectionInfo.password
+        : undefined;
+
+    await sessionManager.resumeSession(stored.payload, manifest, { password });
+  } catch (err) {
+    console.error('Failed to resume session:', err);
+    error = err instanceof Error ? err.message : 'Failed to resume session';
+    status = 'disconnected';
+  }
 }
 
 /**
@@ -470,6 +660,8 @@ export function getSessionStore() {
     startSession,
     joinSession,
     leaveSession,
+    resumeSession,
+    getStoredHostSession,
     toggleMinimized,
     expand,
     minimize,

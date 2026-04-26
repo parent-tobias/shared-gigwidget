@@ -18,8 +18,8 @@
 
   // Hardcoded values — shared page can't rely on app CSS variables (no data-theme set)
   const rendererStyle = $derived(rendererTheme === 'light'
-    ? '--component-bg:#ffffff;--component-text:#1a1a1a;--viewer-bg:#ffffff;--viewer-text:#1a1a1a;--chord-color:#0066cc;--header-color:#333333;--chord-charts-bg:#f5f5f5;--chord-charts-border:#dddddd'
-    : '--component-bg:#16213e;--component-text:#eaeaea;--viewer-bg:#16213e;--viewer-text:#eaeaea;--chord-color:#66b3ff;--header-color:#ffffff;--chord-charts-bg:#0f3460;--chord-charts-border:#2a2a4e'
+    ? '--component-bg:#ffffff;--component-text:#1a1a1a;--viewer-bg:#ffffff;--viewer-text:#1a1a1a;--chord-color:#0066cc;--header-color:#333333;--chord-charts-bg:#f5f5f5;--chord-charts-border:#dddddd;--chord-diagram-color:#1a1a1a'
+    : '--component-bg:#16213e;--component-text:#eaeaea;--viewer-bg:#16213e;--viewer-text:#eaeaea;--chord-color:#66b3ff;--header-color:#ffffff;--chord-charts-bg:#0f3460;--chord-charts-border:#2a2a4e;--chord-diagram-color:#e0e0e0'
   );
 
   /** Map legacy display names to v2 short IDs */

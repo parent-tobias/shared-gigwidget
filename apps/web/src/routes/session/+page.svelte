@@ -2,7 +2,7 @@
   import { browser } from '$app/environment';
   import type { User, Song, QRSessionPayload, SongSet } from '@gigwidget/core';
   import { hasPermission } from '@gigwidget/core';
-  import { getSessionStore } from '$lib/stores/sessionStore.svelte';
+  import { getSessionStore, type StoredHostSession } from '$lib/stores/sessionStore.svelte';
 
   const session = getSessionStore();
 
@@ -28,6 +28,10 @@
   let shareAll = $state(true);
   let sessionPassword = $state('');
   let creating = $state(false);
+
+  // Session recovery
+  let storedSession = $state<StoredHostSession | null>(null);
+  let resuming = $state(false);
 
   // Derived: songs in selected collection
   const selectedCollection = $derived(collections.find(c => c.id === selectedCollectionId));
@@ -55,6 +59,9 @@
         collections = await db.songSets.where({ userId: user.id }).toArray();
         canHost = hasPermission(user, 'create_sessions');
         canJoin = hasPermission(user, 'join_sessions');
+        if (canHost) {
+          storedSession = session.getStoredHostSession(user.id);
+        }
       }
     } catch (err) {
       console.error('Failed to load data:', err);
@@ -86,6 +93,24 @@
       console.error('Failed to start session:', err);
     } finally {
       creating = false;
+    }
+  }
+
+  async function resumeHostSession() {
+    if (!user || !storedSession) return;
+    resuming = true;
+    try {
+      const songsToResume = storedSession.shareAll
+        ? songs
+        : songs.filter(s => {
+            const col = collections.find(c => c.id === storedSession!.collectionId);
+            return col ? col.songIds.includes(s.id) : false;
+          });
+      await session.resumeSession(user, songsToResume);
+    } catch (err) {
+      console.error('Failed to resume session:', err);
+    } finally {
+      resuming = false;
     }
   }
 
@@ -267,6 +292,21 @@
       </div>
     </div>
   {:else}
+    {#if storedSession && canHost}
+      <div class="resume-banner">
+        <div class="resume-info">
+          <span class="resume-title">Session in progress</span>
+          <span class="resume-detail">
+            {storedSession.shareAll ? 'All songs' : (storedSession.collectionName ?? 'Collection')}
+            · started {new Date(storedSession.payload.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            · expires {new Date(storedSession.payload.expiresAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+        <button class="btn btn-primary" onclick={resumeHostSession} disabled={resuming}>
+          {resuming ? 'Resuming...' : 'Resume'}
+        </button>
+      </div>
+    {/if}
     <div class="session-options">
       {#if canHost}
         <button class="option-card" onclick={() => (showHostModal = true)}>
@@ -445,6 +485,35 @@
   .loading {
     text-align: center;
     padding: var(--spacing-xl);
+    color: var(--color-text-muted);
+  }
+
+  .resume-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md) var(--spacing-lg);
+    margin-top: var(--spacing-lg);
+    background-color: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--color-primary);
+    border-radius: var(--radius-md);
+  }
+
+  .resume-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .resume-title {
+    font-weight: 500;
+    font-size: 0.9rem;
+  }
+
+  .resume-detail {
+    font-size: 0.8rem;
     color: var(--color-text-muted);
   }
 
