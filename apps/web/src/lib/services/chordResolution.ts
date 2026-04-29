@@ -197,15 +197,18 @@ class WebChordDataProvider implements ChordDataProvider {
       await registerCustomInstruments();
 
       // Import chord-component service, with error handling for re-registration
-      let chordDataService;
+      let chordDataService: any;
+      let getInstrument: (id: string) => { strings: string[] } | undefined = () => undefined;
       try {
         const chordComponent = await import('@parent-tobias/chord-component');
         chordDataService = chordComponent.chordDataService;
+        getInstrument = chordComponent.getInstrument;
       } catch (importErr) {
         // Ignore "already defined" errors from custom elements
         if (importErr instanceof DOMException && importErr.message.includes('already been defined')) {
           const chordComponent = await import('@parent-tobias/chord-component');
           chordDataService = chordComponent.chordDataService;
+          getInstrument = chordComponent.getInstrument;
         } else {
           throw importErr;
         }
@@ -215,12 +218,23 @@ class WebChordDataProvider implements ChordDataProvider {
       const chordData = await chordDataService.getChord(chordComponentId, chordName, false);
 
       if (chordData && chordData.fingers && chordData.fingers.length > 0) {
-        // Convert from chord-component format to our format
+        // Build positions indexed by stringNum-1 so positions[0]=string1 (rightmost/highest).
+        // chord-component stores fingers as [[stringNum, fret],...] where string 1 is the
+        // rightmost string. SVGuitar and the rest of the pipeline expect positions[0]=string1.
+        const instrument = getInstrument(chordComponentId);
+        const numStrings = instrument?.strings.length
+          ?? Math.max(...(chordData.fingers as [number, number][]).map(([s]) => s), 1);
+        const posArr = new Array(numStrings).fill(0);
+        for (const [stringNum, fret] of chordData.fingers as [number, number][]) {
+          if (stringNum >= 1 && stringNum <= numStrings) {
+            posArr[stringNum - 1] = fret;
+          }
+        }
         return {
           chordName,
           instrumentId,
-          positions: chordData.fingers.map(([, fret]: [number, number]) => fret),
-          fingers: chordData.fingers.map(() => 0), // chord-component doesn't specify finger numbers
+          positions: posArr,
+          fingers: new Array(numStrings).fill(0),
           barres: chordData.barres
             ? chordData.barres.map((b: any) => ({
                 fret: b.fret,
