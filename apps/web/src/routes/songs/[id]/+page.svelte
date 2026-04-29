@@ -78,6 +78,11 @@
   // Renderer chord overrides (v2 JS-only property)
   let rendererChordOverrides = $state<Record<string, { fingers: any[]; barres: any[] }> | null>(null);
   let rendererElement: HTMLElement | undefined = $state();
+  // Tracks the instrument actually active in the renderer (may differ from effectiveInstrument
+  // when the user changes the dropdown inside the renderer component).
+  let rendererInstrument = $state<string>('');
+  // Incremented on each new resolution request; stale async calls check against this and discard.
+  let chordResolveRequestId = 0;
 
   // Fork confirmation state (for saved songs that need forking before edit)
   let showForkModal = $state(false);
@@ -841,14 +846,17 @@
     }
   });
 
-  // Resolve all chords for the renderer's chordOverrides property
+  // Resolve all chords for the renderer's chordOverrides property.
+  // Uses only rendererInstrument (not effectiveInstrument directly) to avoid double-tracking:
+  // the sync effect below keeps rendererInstrument up to date with effectiveInstrument.
   $effect(() => {
     if (!browser || !currentUser || !song || uniqueChords.length === 0) {
       rendererChordOverrides = null;
       return;
     }
+    const instrument = rendererInstrument;
+    if (!instrument) return;
     const chordsToResolve = uniqueChords;
-    const instrument = effectiveInstrument;
     const userId = currentUser.id;
     const songIdVal = song.id;
     // Track songChordOverrides for reactivity (re-resolve when user picks a variation)
@@ -858,6 +866,7 @@
   });
 
   async function resolveAllChordsForRenderer(chordNames: string[], instrument: string, userId: string, songId: string) {
+    const myRequestId = ++chordResolveRequestId;
     try {
       const { resolveChordForSongWithSystemChords } = await import('$lib/services/chordResolution');
       const overrides: Record<string, { fingers: any[]; barres: any[] }> = {};
@@ -876,6 +885,8 @@
         }
       }));
 
+      // Discard result if a newer resolution request has started since we began
+      if (myRequestId !== chordResolveRequestId) return;
       rendererChordOverrides = overrides;
     } catch (err) {
       console.error('Failed to resolve chords for renderer:', err);
@@ -887,6 +898,21 @@
     if (rendererElement && rendererReady) {
       (rendererElement as any).chordOverrides = rendererChordOverrides;
     }
+  });
+
+  // Keep rendererInstrument in sync with the user's saved preference, and listen for
+  // changes made via the renderer's own instrument dropdown.
+  $effect(() => {
+    rendererInstrument = effectiveInstrument;
+  });
+
+  $effect(() => {
+    if (!rendererElement) return;
+    const handler = (e: Event) => {
+      rendererInstrument = (e as CustomEvent).detail?.instrument ?? rendererInstrument;
+    };
+    rendererElement.addEventListener('instrument-changed', handler);
+    return () => rendererElement!.removeEventListener('instrument-changed', handler);
   });
 </script>
 
