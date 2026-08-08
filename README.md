@@ -12,6 +12,7 @@ A local-first TAB music sharing app for musicians.
 - **Cloud Sync**: Optional Supabase backup when online
 - **Cross-Platform**: Web, iOS, Android, macOS, Windows, Linux
 
+
 ## Quick Start
 
 ```bash
