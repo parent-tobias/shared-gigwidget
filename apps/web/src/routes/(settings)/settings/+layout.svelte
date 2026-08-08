@@ -13,6 +13,7 @@
     { href: '/settings/account', label: 'Account', icon: 'user' },
     { href: '/settings/preferences', label: 'Preferences', icon: 'sliders' },
     { href: '/settings/instruments', label: 'Instruments', icon: 'guitar' },
+    { href: '/settings/api-keys', label: 'API Keys', icon: 'key' },
   ];
 
   function isActive(href: string): boolean {
@@ -64,6 +65,12 @@
                   <path d="M12 11l-1.5 1.5"/>
                   <path d="m5 19 3-3"/>
                   <path d="M2 22l3-3"/>
+                </svg>
+              {:else if link.icon === 'key'}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="7.5" cy="15.5" r="5.5"/>
+                  <path d="M21 2l-9.6 9.6"/>
+                  <path d="M15.5 7.5l3 3L22 7l-3-3"/>
                 </svg>
               {/if}
             </span>
