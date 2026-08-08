@@ -283,6 +283,43 @@ CREATE TRIGGER update_system_chords_updated_at
 ALTER PUBLICATION supabase_realtime ADD TABLE system_chords;
 
 -- ============================================================================
+-- API Keys Table (Personal access tokens for the HTTP API / MCP server)
+-- ============================================================================
+--
+-- Plaintext key format: gw_live_<43 chars of base64url randomness>
+-- Only the SHA-256 hash of the plaintext is stored. The plaintext is shown
+-- to the user exactly once at generation time; if lost, they must issue a
+-- new key. key_prefix (first ~12 chars) is kept in plaintext so the UI can
+-- display a recognizable identifier without needing the full key.
+--
+-- Lookups on the API request path go by key_hash directly (deterministic
+-- SHA-256, safe because plaintext keys are high-entropy). The API route
+-- runs with the service role client and bypasses RLS; the RLS policies
+-- below govern the settings UI which uses the user's own JWT.
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  key_hash TEXT NOT NULL UNIQUE, -- SHA-256 hex of the plaintext key
+  key_prefix TEXT NOT NULL,      -- first ~12 chars of plaintext, for UI display
+  label TEXT NOT NULL,           -- user-provided description (e.g., "Claude MCP on laptop")
+  last_used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  revoked_at TIMESTAMPTZ         -- soft delete; NULL means active
+);
+
+CREATE INDEX IF NOT EXISTS api_keys_user_id_idx ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS api_keys_key_hash_idx ON api_keys(key_hash);
+
+ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage their own api keys"
+  ON api_keys
+  FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- ============================================================================
 -- Avatar Storage Bucket
 -- Run these in Supabase Dashboard > Storage > New Bucket
 -- ============================================================================
