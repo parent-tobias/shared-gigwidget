@@ -10,10 +10,13 @@ const config = {
     // Vercel adapter — enables serverless functions for /api/* routes.
     // Root +layout.ts sets ssr=false + prerender=false + csr=true, so pages
     // are served as SPA shells hydrated on the client, matching the prior
-    // adapter-static behavior. Runtime is Node so we can use the standard
-    // crypto module for SHA-256 hashing in the API routes.
+    // adapter-static behavior.
+    //
+    // Runtime: Vercel deprecated nodejs20.x in late 2026. Pinned to 22.x.
+    // When 22.x gets deprecated, bump to whatever the current LTS Vercel
+    // runtime is at the time (24.x likely).
     adapter: adapter({
-      runtime: 'nodejs20.x',
+      runtime: 'nodejs22.x',
     }),
 
     // App configuration
