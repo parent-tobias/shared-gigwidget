@@ -16,7 +16,7 @@
     "@gigwidget/db": "workspace:*",
     "@gigwidget/sync": "workspace:*",
     "@gigwidget/ui": "workspace:*",
-    "@parent-tobias/chord-component": "3.0.0-alpha.2",
+    "@parent-tobias/chord-component": "3.0.0-alpha.3",
     "@svguitar/chords-plugin": "0.0.4",
     "@parent-tobias/chordpro-editor": "latest",
     "@parent-tobias/chordpro-renderer": "^2.1.5",

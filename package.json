@@ -35,7 +35,7 @@
   },
   "pnpm": {
     "overrides": {
-      "@parent-tobias/chord-component": "3.0.0-alpha.2"
+      "@parent-tobias/chord-component": "3.0.0-alpha.3"
     }
   }
 }
