@@ -68,9 +68,6 @@ importers:
       jszip:
         specifier: ^3.10.1
         version: 3.10.1
-      svguitar:
-        specifier: ^2.5.0
-        version: 2.5.0
       y-indexeddb:
         specifier: ^9.0.0
         version: 9.0.12(yjs@13.6.29)

@@ -2,7 +2,31 @@
   import { browser } from '$app/environment';
   import type { ResolvedChord, SongChordOverride, LocalFingering } from '@gigwidget/core';
   import { hasPermission } from '@gigwidget/core';
+  import { registerCustomInstruments } from '$lib/services/chordResolution';
   import ChordEditor from './ChordEditor.svelte';
+
+  // Map app instrument IDs to chord-component v2 IDs
+  const CHORD_COMPONENT_IDS: Record<string, string> = {
+    'drop-d-guitar': 'guitar-drop-d',
+    '5ths-ukulele': 'ukulele-5ths',
+  };
+
+  function getChordComponentId(id: string): string {
+    return CHORD_COMPONENT_IDS[id] || id;
+  }
+
+  // Svelte action: set chordFingers/chordBarres JS properties on <chord-diagram>
+  function setChordData(node: HTMLElement, variation: ResolvedChord) {
+    function update(v: ResolvedChord) {
+      const fingers = v.positions.map((fret, i) =>
+        fret === -1 ? [i + 1, 'x'] : [i + 1, fret]
+      );
+      (node as any).chordFingers = fingers;
+      (node as any).chordBarres = v.barres || [];
+    }
+    update(variation);
+    return { update };
+  }
 
   interface Props {
     songId: string;
@@ -24,28 +48,17 @@
 
   let chordVariations = $state<VariationWithId[]>([]);
   let loading = $state(true);
-  let svguitarReady = $state(false);
+  let componentReady = $state(false);
   let showEditor = $state(false);
   let user = $state<any>(null);
   let canEditChords = $derived(user && hasPermission(user, 'edit_chords'));
   let deletingId = $state<string | null>(null);
 
-  // SVGuitar reference
-  let SVGuitarChord: any = null;
-
-  // Instrument string count for SVGuitar
-  const INSTRUMENT_STRINGS: Record<string, number> = {
-    'guitar': 6,
-    'ukulele': 4,
-    'baritone-ukulele': 4,
-    'mandolin': 4,
-    'drop-d-guitar': 6,
-    '5ths-ukulele': 4,
-  };
+  let chordComponentInstrument = $derived(getChordComponentId(instrumentId));
 
   $effect(() => {
     if (browser) {
-      loadSVGuitar();
+      loadChordComponent();
       loadUser();
       loadVariations();
     }
@@ -64,13 +77,23 @@
     }
   }
 
-  async function loadSVGuitar() {
+  async function loadChordComponent() {
     try {
-      const svguitar = await import('svguitar');
-      SVGuitarChord = svguitar.SVGuitarChord;
-      svguitarReady = true;
+      if (customElements.get('chord-diagram')) {
+        await registerCustomInstruments();
+        componentReady = true;
+        return;
+      }
+
+      await import('@parent-tobias/chord-component');
+      await registerCustomInstruments();
+      componentReady = true;
     } catch (err) {
-      console.error('Failed to load SVGuitar:', err);
+      console.error('Failed to load chord-component:', err);
+      if (err instanceof DOMException && err.message.includes('already been defined')) {
+        await registerCustomInstruments();
+        componentReady = true;
+      }
     }
   }
 
@@ -199,79 +222,6 @@
     }
   }
 
-  /**
-   * Render a chord diagram using SVGuitar directly via use: action
-   */
-  function renderChordDiagram(container: HTMLElement, variation: ResolvedChord) {
-    if (!SVGuitarChord || !container) return;
-
-    container.innerHTML = '';
-
-    const numStrings = INSTRUMENT_STRINGS[instrumentId] || 4;
-
-    // Convert positions to fingers format for SVGuitar
-    // positions is [fret, fret, ...] per string (0 = open, -1 = muted)
-    const fingers: [number, number | 'x'][] = [];
-    for (let i = 0; i < variation.positions.length; i++) {
-      const fret = variation.positions[i];
-      const stringNum = i + 1; // 1-indexed
-      if (fret === -1) {
-        fingers.push([stringNum, 'x']);
-      } else {
-        fingers.push([stringNum, fret]);
-      }
-    }
-
-    try {
-      const chart = new SVGuitarChord(container);
-      chart
-        .configure({
-          strings: numStrings,
-          frets: 4,
-          position: variation.baseFret || 1,
-          fretSize: 1.5,
-          nutWidth: 10,
-          sidePadding: 0.2,
-          titleBottomMargin: 0,
-          color: '#e2e8f0',
-          backgroundColor: 'transparent',
-          barreChordRadius: 0.3,
-          emptyStringIndicatorSize: 0.5,
-          strokeWidth: 2,
-          fretLabelPosition: 'right',
-          fretLabelFontSize: 38,
-          fingerSize: 0.6,
-          fingerTextSize: 22,
-        })
-        .chord({
-          fingers,
-          barres: variation.barres || [],
-        })
-        .draw();
-    } catch (err) {
-      console.error('Error rendering chord diagram:', err);
-      container.innerHTML = '<span style="color: #fc8181; font-size: 0.75rem;">Error</span>';
-    }
-  }
-
-  // Svelte action for rendering chord diagrams
-  function chordDiagramAction(node: HTMLElement, variation: ResolvedChord) {
-    if (svguitarReady) {
-      renderChordDiagram(node, variation);
-    }
-
-    return {
-      update(newVariation: ResolvedChord) {
-        if (svguitarReady) {
-          renderChordDiagram(node, newVariation);
-        }
-      }
-    };
-  }
-
-  // Create a render key that changes when SVGuitar becomes ready
-  // This forces Svelte to re-create the diagram elements
-  let renderKey = $derived(svguitarReady ? 'ready' : 'loading');
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -321,8 +271,13 @@
                 class:selected={isCurrentlySelected(variation)}
                 onclick={() => handleSelect(variation)}
               >
-                {#if svguitarReady}
-                  <div class="diagram-container" use:chordDiagramAction={variation}></div>
+                {#if componentReady}
+                  <div class="diagram-container">
+                    <chord-diagram
+                      instrument={chordComponentInstrument}
+                      use:setChordData={variation}
+                    ></chord-diagram>
+                  </div>
                 {:else}
                   <div class="positions-text">{formatPositions(variation.positions)}</div>
                 {/if}
@@ -515,6 +470,16 @@
   .diagram-container :global(svg) {
     max-width: 100%;
     max-height: 100%;
+  }
+
+  chord-diagram {
+    display: block;
+    width: 100px;
+    height: 110px;
+    --chord-diagram-color: var(--color-text, #e2e8f0);
+    --chord-bg: transparent;
+    --chord-border: transparent;
+    --chord-name-color: var(--color-text, #e2e8f0);
   }
 
   .positions-text {
